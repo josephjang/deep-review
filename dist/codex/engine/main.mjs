@@ -38610,13 +38610,13 @@ var init_pull_request_words = __esm({
       minorSummary: "The minor findings",
       minorColumns: { number: "#", finding: "Finding", kind: "Reaches", verdict: "Verdict", action: "What deep-review would do" },
       kindValues: { user: "what a user sees", code: "the code", none: "not given" },
-      minorCut: "To fit the length GitHub takes, the table of the minor findings is left out; each has its comment on its line or its text above, and the report of the run holds them all.",
+      minorCut: "To fit the length GitHub takes, the table of the minor findings is left out; the report of the run holds them all.",
       leftHeading: "### The findings left as is",
       leftSummary: "The findings left as is",
       leaveReasons: leaveReasonWords,
       supersededByLabel: "Superseded by",
       leftWhyLabel: "**Why deep-review leaves it.**",
-      leftCut: "To fit the length GitHub takes, the findings left as is whose verifiers named no choice for the author are not listed here; the report of the run holds each.",
+      leftCut: "To fit the length GitHub takes, these findings left as is are not listed here; the report of the run holds each.",
       trustHeading: "### How far to trust this review",
       verdictColumns: { verdict: "Verdict", findings: "Findings", major: "Of them major", majorRan: "Of the major, reproduced by running", unverified: "Of them unverified" },
       basisColumns: { basis: "Checked by", findings: "Findings" },
@@ -38626,7 +38626,29 @@ var init_pull_request_words = __esm({
       missingLabel: "Parts of the writer's answer this review lacks",
       writerParts: { core: "the core of the change", conditions: "the reasons to look", summary: "the summary", areas: "the areas", findings: "findings", left: "the findings left as is", refuted: "the refuted candidates", "not-examined": "what the review did not examine" },
       answeredAfterLabel: "Answered after the writer wrote",
-      lastLabels: { engine: "Reviewed by", runtime: "Runtime", models: "Models", run: "Run", commits: "Commits" }
+      lastLabels: { engine: "Reviewed by", runtime: "Runtime", models: "Models", run: "Run", commits: "Commits" },
+      leftOutNotice: "This review does not hold all of the run: to fit the length GitHub takes, the parts counted here are left out. The report of the run, on the machine of the person who ran the review, prints each finding with its evidence and its decision in the words of the workers that recorded them, with the command below. A text of deep-review's writer that is left out, such as a diagram, the text of a finding, the line of a refuted candidate or the reason of a finding left as is, is kept in the writer's answer on that machine, and no command prints it.",
+      leftOutLabels: {
+        whole: "Left out whole",
+        records: "Findings whose recorded decision is left out",
+        left: "Findings left as is that are not listed",
+        texts: "Findings whose text is left out",
+        lines: "Findings that are not listed",
+        commentRecords: "Comments without their recorded decision",
+        commentTexts: "Comments with their facts alone"
+      },
+      wholePieces: { "minor-table": "the table of the minor findings", refuted: "the refuted candidates", diagrams: "the diagrams" },
+      reportCommandLabel: "Command that prints a finding",
+      recordLeftOut: "The decision as deep-review recorded it is left out here to fit the length GitHub takes.",
+      printCommandLabel: "Command that prints it",
+      fixTextSummary: "The fix in full, in the writer's words",
+      textsLeftLabel: "**Findings whose text is left out.**",
+      textsLeftNotice: "To fit the length GitHub takes, the text of each of these findings is left out; the report of the run prints each, in the words of the workers that recorded it.",
+      linesLeftNotice: "To fit the length GitHub takes, these findings are not listed here; the report of the run prints each.",
+      coreDiagramCut: "To fit the length GitHub takes, the diagram of the change is left out; the writer's answer on the machine that holds the run keeps it.",
+      floorNotice: "The text of this review does not fit the length GitHub takes, so it gives only the counts of the run, what waits on a person, and where to read the rest. The report of the run, on the machine of the person who ran the review, prints each finding with its evidence and its decision in the words of the workers that recorded them, with the command below; the texts of deep-review's writer are kept in its answer on that machine, and no command prints them.",
+      waitingLabels: { questions: "Questions not answered", departures: "Fixes against a written rule not accepted or rejected", choices: "Choices its verifiers left to the author that deep-review did not settle" },
+      commentFactsNotice: "The text of this finding does not fit the length GitHub takes for a comment; the report of the run prints the finding, in the words of the workers that recorded it, and deep-review's writer's text of it is kept in its answer on the machine of the person who ran the review."
     };
     koreanFindingSaid = /지적\s*사항\s*(?:\d+(?:(?:[과와]\s*|\s*,\s*)\d+)*(?:[과와]\s*|\s*,\s*))?$/;
     koreanFindingNoun = new RegExp("^\\s*\uC9C0\uC801(?:\\s*\uC0AC\uD56D)?(?!\\s*\uC0AC\uD56D)(?=(?:\uC73C\uB85C|\uB85C|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uACFC|\uC640|\uC758|\uC5D0\uC11C|\uC5D0|\uB3C4|\uB9CC)?(?!\\p{Script=Hangul}))", "u");
@@ -38852,7 +38874,7 @@ var init_pull_request_words = __esm({
       minorSummary: "minor \uC9C0\uC801 \uC0AC\uD56D",
       minorColumns: { number: "#", finding: "\uC9C0\uC801 \uC0AC\uD56D", kind: "\uB2FF\uB294 \uACF3", verdict: "\uD310\uC815", action: "deep-review\uAC00 \uD560 \uC77C" },
       kindValues: { user: "\uC0AC\uC6A9\uC790\uAC00 \uBCF4\uB294 \uAC83", code: "\uCF54\uB4DC", none: "\uC815\uD558\uC9C0 \uC54A\uC74C" },
-      minorCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C minor \uC9C0\uC801 \uC0AC\uD56D\uC758 \uD45C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uAC01 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uD574\uB2F9 \uC904\uC758 \uB313\uAE00\uC774\uB098 \uC704\uC758 \uC804\uBB38\uC5D0 \uC788\uC73C\uBA70, \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uBAA8\uB450 \uC788\uC2B5\uB2C8\uB2E4.",
+      minorCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C minor \uC9C0\uC801 \uC0AC\uD56D\uC758 \uD45C\uB294 \uBE90\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uBAA8\uB450 \uC788\uC2B5\uB2C8\uB2E4.",
       leftHeading: "### \uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D",
       leftSummary: "\uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D",
       leaveReasons: {
@@ -38863,7 +38885,7 @@ var init_pull_request_words = __esm({
       },
       supersededByLabel: "\uD574\uACB0\uD558\uB294 \uC9C0\uC801 \uC0AC\uD56D",
       leftWhyLabel: "**deep-review\uAC00 \uADF8\uB300\uB85C \uB450\uB294 \uC774\uC720.**",
-      leftCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C, \uAC80\uC99D\uC790\uAC00 \uC791\uC131\uC790\uC5D0\uAC8C \uB0A8\uAE34 \uC120\uD0DD\uC774 \uC5C6\uB294 \uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D\uC740 \uC5EC\uAE30\uC5D0 \uC801\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uBAA8\uB450 \uC788\uC2B5\uB2C8\uB2E4.",
+      leftCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uC774 \uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D\uB4E4\uC740 \uC5EC\uAE30\uC5D0 \uC801\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uBCF4\uACE0\uC11C\uC5D0 \uBAA8\uB450 \uC788\uC2B5\uB2C8\uB2E4.",
       trustHeading: "### \uC774 \uB9AC\uBDF0\uB97C \uC5BC\uB9C8\uB098 \uBBFF\uC744 \uC218 \uC788\uB098",
       verdictColumns: { verdict: "\uD310\uC815", findings: "\uC9C0\uC801 \uC0AC\uD56D", major: "\uADF8\uC911 major", majorRan: "major \uC911 \uC2E4\uD589\uD574 \uC7AC\uD604\uD568", unverified: "\uADF8\uC911 \uAC80\uC99D \uC548 \uB428" },
       basisColumns: { basis: "\uD655\uC778 \uBC29\uBC95", findings: "\uC9C0\uC801 \uC0AC\uD56D" },
@@ -38873,7 +38895,29 @@ var init_pull_request_words = __esm({
       missingLabel: "\uC774 \uB9AC\uBDF0\uC5D0 \uC5C6\uB294 \uC124\uBA85 \uBAA8\uB378\uC758 \uB2F5",
       writerParts: { core: "\uBCC0\uACBD\uC758 \uD575\uC2EC", conditions: "\uC0B4\uD3B4\uBCFC \uC774\uC720", summary: "\uC694\uC57D", areas: "\uC601\uC5ED", findings: "\uC9C0\uC801 \uC0AC\uD56D", left: "\uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D", refuted: "\uBC18\uBC15\uB41C \uD6C4\uBCF4", "not-examined": "\uAC80\uD1A0\uD558\uC9C0 \uC54A\uC740 \uAC83" },
       answeredAfterLabel: "\uC124\uBA85 \uBAA8\uB378\uC774 \uC4F4 \uB4A4\uC5D0 \uB2F5\uD55C \uAC83",
-      lastLabels: { engine: "\uB9AC\uBDF0\uD55C \uC5D4\uC9C4", runtime: "\uB7F0\uD0C0\uC784", models: "\uBAA8\uB378", run: "\uC2E4\uD589", commits: "\uCEE4\uBC0B" }
+      lastLabels: { engine: "\uB9AC\uBDF0\uD55C \uC5D4\uC9C4", runtime: "\uB7F0\uD0C0\uC784", models: "\uBAA8\uB378", run: "\uC2E4\uD589", commits: "\uCEE4\uBC0B" },
+      leftOutNotice: "\uC774 \uB9AC\uBDF0\uC5D0\uB294 \uC2E4\uD589\uC758 \uBAA8\uB4E0 \uB0B4\uC6A9\uC774 \uB2F4\uACA8 \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uC544\uB798\uC5D0 \uC13C \uBD80\uBD84\uC744 \uBE90\uC2B5\uB2C8\uB2E4. \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC758 \uCEF4\uD4E8\uD130\uC5D0 \uC788\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uB294 \uC544\uB798 \uBA85\uB839\uC73C\uB85C \uAC01 \uC9C0\uC801 \uC0AC\uD56D\uC744 \uADFC\uAC70\uC640 \uD568\uAED8, \uACB0\uC815\uC740 \uADF8\uAC83\uC744 \uAE30\uB85D\uD55C \uC791\uC5C5\uC790\uC758 \uC6D0\uBB38\uC73C\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4. deep-review \uC124\uBA85 \uBAA8\uB378\uC774 \uC4F4 \uAE00 \uAC00\uC6B4\uB370 \uBE80 \uAC83, \uACE7 \uB2E4\uC774\uC5B4\uADF8\uB7A8, \uC9C0\uC801 \uC0AC\uD56D\uC758 \uBCF8\uBB38, \uBC18\uBC15\uB41C \uD6C4\uBCF4\uC758 \uD55C \uC904, \uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D\uC758 \uC774\uC720\uB294 \uADF8 \uCEF4\uD4E8\uD130\uC5D0 \uC788\uB294 \uC124\uBA85 \uBAA8\uB378\uC758 \uB2F5\uC5D0 \uB0A8\uC544 \uC788\uC73C\uBA70, \uC774\uB97C \uBCF4\uC5EC \uC8FC\uB294 \uBA85\uB839\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      leftOutLabels: {
+        whole: "\uD1B5\uC9F8\uB85C \uBE80 \uAC83",
+        records: "\uAE30\uB85D\uB41C \uACB0\uC815\uC744 \uBE80 \uC9C0\uC801 \uC0AC\uD56D",
+        left: "\uC801\uC9C0 \uC54A\uC740 \uADF8\uB300\uB85C \uB454 \uC9C0\uC801 \uC0AC\uD56D",
+        texts: "\uBCF8\uBB38\uC744 \uBE80 \uC9C0\uC801 \uC0AC\uD56D",
+        lines: "\uC801\uC9C0 \uC54A\uC740 \uC9C0\uC801 \uC0AC\uD56D",
+        commentRecords: "\uAE30\uB85D\uB41C \uACB0\uC815\uC744 \uBE80 \uB313\uAE00",
+        commentTexts: "\uC0AC\uC2E4\uB9CC \uB0A8\uC740 \uB313\uAE00"
+      },
+      wholePieces: { "minor-table": "minor \uC9C0\uC801 \uC0AC\uD56D\uC758 \uD45C", refuted: "\uBC18\uBC15\uB41C \uD6C4\uBCF4", diagrams: "\uB2E4\uC774\uC5B4\uADF8\uB7A8" },
+      reportCommandLabel: "\uC9C0\uC801 \uC0AC\uD56D\uC744 \uBCF4\uC5EC \uC8FC\uB294 \uBA85\uB839",
+      recordLeftOut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C deep-review\uAC00 \uAE30\uB85D\uD55C \uACB0\uC815\uC740 \uC5EC\uAE30\uC11C \uBE90\uC2B5\uB2C8\uB2E4.",
+      printCommandLabel: "\uC774\uB97C \uBCF4\uC5EC \uC8FC\uB294 \uBA85\uB839",
+      fixTextSummary: "\uC124\uBA85 \uBAA8\uB378\uC774 \uC4F4 \uC218\uC815\uC758 \uC804\uBB38",
+      textsLeftLabel: "**\uBCF8\uBB38\uC744 \uBE80 \uC9C0\uC801 \uC0AC\uD56D.**",
+      textsLeftNotice: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uC544\uB798 \uC9C0\uC801 \uC0AC\uD56D\uB4E4\uC758 \uBCF8\uBB38\uC740 \uBE90\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uBCF4\uACE0\uC11C\uAC00 \uAC01\uAC01\uC744 \uAE30\uB85D\uD55C \uC791\uC5C5\uC790\uC758 \uC6D0\uBB38\uC73C\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4.",
+      linesLeftNotice: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uC774 \uC9C0\uC801 \uC0AC\uD56D\uB4E4\uC740 \uC5EC\uAE30\uC5D0 \uC801\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uBCF4\uACE0\uC11C\uAC00 \uAC01\uAC01\uC744 \uBCF4\uC5EC \uC90D\uB2C8\uB2E4.",
+      coreDiagramCut: "GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB9DE\uCD94\uB290\uB77C \uBCC0\uACBD\uC758 \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC740 \uBE90\uC2B5\uB2C8\uB2E4. \uC124\uBA85 \uBAA8\uB378\uC758 \uC6D0\uB798 \uB2F5\uC740 \uC2E4\uD589 \uAE30\uB85D\uC774 \uC788\uB294 \uCEF4\uD4E8\uD130\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4.",
+      floorNotice: "\uC774 \uB9AC\uBDF0\uC758 \uAE00\uC740 GitHub\uAC00 \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB4E4\uC5B4\uAC00\uC9C0 \uC54A\uC544, \uC2E4\uD589\uC758 \uC218, \uC0AC\uB78C\uC744 \uAE30\uB2E4\uB9AC\uB294 \uAC83, \uB098\uBA38\uC9C0\uB97C \uC77D\uC744 \uACF3\uB9CC \uC801\uC5C8\uC2B5\uB2C8\uB2E4. \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC758 \uCEF4\uD4E8\uD130\uC5D0 \uC788\uB294 \uC2E4\uD589 \uBCF4\uACE0\uC11C\uB294 \uC544\uB798 \uBA85\uB839\uC73C\uB85C \uAC01 \uC9C0\uC801 \uC0AC\uD56D\uC744 \uADFC\uAC70\uC640 \uD568\uAED8, \uACB0\uC815\uC740 \uADF8\uAC83\uC744 \uAE30\uB85D\uD55C \uC791\uC5C5\uC790\uC758 \uC6D0\uBB38\uC73C\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4. deep-review \uC124\uBA85 \uBAA8\uB378\uC774 \uC4F4 \uAE00\uC740 \uADF8 \uCEF4\uD4E8\uD130\uC5D0 \uC788\uB294 \uC124\uBA85 \uBAA8\uB378\uC758 \uB2F5\uC5D0 \uB0A8\uC544 \uC788\uC73C\uBA70, \uC774\uB97C \uBCF4\uC5EC \uC8FC\uB294 \uBA85\uB839\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.",
+      waitingLabels: { questions: "\uB2F5\uD558\uC9C0 \uC54A\uC740 \uC9C8\uBB38", departures: "\uBC1B\uC544\uB4E4\uC774\uAC70\uB098 \uAC70\uBD80\uD558\uC9C0 \uC54A\uC740 \uBA85\uBB38\uD654\uB41C \uADDC\uCE59\uACFC \uB2E4\uB978 \uC218\uC815", choices: "\uAC80\uC99D\uC790\uAC00 \uC791\uC131\uC790\uC5D0\uAC8C \uB0A8\uACBC\uACE0 deep-review\uAC00 \uC815\uD558\uC9C0 \uC54A\uC740 \uC120\uD0DD" },
+      commentFactsNotice: "\uC774 \uC9C0\uC801 \uC0AC\uD56D\uC758 \uBCF8\uBB38\uC740 GitHub\uAC00 \uB313\uAE00\uB85C \uBC1B\uB294 \uAE38\uC774\uC5D0 \uB4E4\uC5B4\uAC00\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uBCF4\uACE0\uC11C\uAC00 \uC774 \uC9C0\uC801 \uC0AC\uD56D\uC744 \uAE30\uB85D\uD55C \uC791\uC5C5\uC790\uC758 \uC6D0\uBB38\uC73C\uB85C \uBCF4\uC5EC \uC8FC\uBA70, deep-review \uC124\uBA85 \uBAA8\uB378\uC774 \uC4F4 \uBCF8\uBB38\uC740 \uC774 \uB9AC\uBDF0\uB97C \uC2E4\uD589\uD55C \uC0AC\uB78C\uC758 \uCEF4\uD4E8\uD130\uC5D0 \uC788\uB294 \uC124\uBA85 \uBAA8\uB378\uC758 \uB2F5\uC5D0 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4."
     };
     pullRequestLanguages = ["en", "ko"];
     pullRequestWordTables = { en: english, ko: korean };
@@ -39006,6 +39050,7 @@ function formViewOf(input2) {
     input: input2
   };
 }
+var acts, isMinor, inFull, majorActing, minorActing, leftAsIs;
 var init_pull_request_view = __esm({
   "src/review/pull-request-view.ts"() {
     "use strict";
@@ -39016,6 +39061,15 @@ var init_pull_request_view = __esm({
     init_pull_request_words();
     init_state();
     init_vocabulary();
+    acts = (view) => asksToAct(view.decision?.decision);
+    isMinor = (view) => view.finding.severity === "minor";
+    inFull = (view) => acts(view) && view.placement.place === "body";
+    majorActing = (view) => view.findings.filter((finding) => !isMinor(finding) && acts(finding));
+    minorActing = (view) => {
+      const minor = view.findings.filter((finding) => isMinor(finding) && acts(finding));
+      return [...minor.filter((finding) => finding.kind === "user"), ...minor.filter((finding) => finding.kind !== "user")];
+    };
+    leftAsIs = (view) => view.findings.filter((finding) => !acts(finding));
   }
 });
 
@@ -41653,38 +41707,135 @@ var init_executable = __esm({
   }
 });
 
-// src/review/pull-request-form.ts
-function formRefusalWords(refusal) {
-  const what = refusal.text.kind === "body" ? "the body of the review, after every cut," : `the comment of ${refusal.text.finding} on ${refusal.text.path}:${String(refusal.text.line)}`;
-  const parts = refusal.parts.map((part) => `${part.part} ${String(part.size)}`).join(", ");
-  return `${what} is ${String(refusal.size)} characters, over the ${String(refusal.limit)} a review posts: ${parts}`;
+// src/review/pull-request-fit.ts
+function waitsOnPerson(finding) {
+  const { question, departure, decision } = finding;
+  if (question !== null && (question.answer === null || question.answer.option === null)) return true;
+  if (departure !== null && departure.review === null) return true;
+  if (decision?.decision === "ask") return false;
+  return choicesShown(finding.choices, decision?.settled ?? []).some((shown) => shown.settled === null);
 }
-function speakerOf(machine, words, names2) {
+function unsettledChoices(finding) {
+  if (finding.decision?.decision === "ask") return 0;
+  return choicesShown(finding.choices, finding.decision?.settled ?? []).filter((shown) => shown.settled === null).length;
+}
+function fitOrder(view) {
+  const left = lastRankedFirst(leftAsIs(view));
+  const full = lastRankedFirst(view.findings.filter(inFull));
+  const waiting = (finding) => waitsOnPerson(finding);
+  const free = (finding) => !waiting(finding);
+  const record2 = (finding) => ({ piece: "record", finding: finding.finding.id });
+  const diagrams = majorActing(view).length > 0 && view.areas !== null && view.areas.some((area) => area.diagram !== null) || view.core.kind === "writer" && view.core.core.diagram !== null;
+  const freeFull = full.filter(free);
+  return [
+    ...minorActing(view).length > 0 ? [{ piece: "minor-table" }] : [],
+    ...left.filter((finding) => free(finding) && hasRecord(finding)).map(record2),
+    ...freeFull.filter(hasRecord).map(record2),
+    ...view.refuted.length > 0 ? [{ piece: "refuted" }] : [],
+    ...left.filter(free).map((finding) => ({ piece: "left", finding: finding.finding.id })),
+    ...diagrams ? [{ piece: "diagrams" }] : [],
+    ...freeFull.map((finding) => ({ piece: "text", finding: finding.finding.id })),
+    ...freeFull.filter(isMinor).map((finding) => ({ piece: "line", finding: finding.finding.id })),
+    ...lastRankedFirst([...leftAsIs(view), ...view.findings.filter(inFull)]).filter((finding) => waiting(finding) && hasRecord(finding)).map(record2),
+    ...left.filter(waiting).map((finding) => ({ piece: "left", finding: finding.finding.id })),
+    { piece: "floor" }
+  ];
+}
+function leftOutOf(steps) {
+  const findings = /* @__PURE__ */ new Map();
+  let minorTable = false;
+  let refuted2 = false;
+  let diagrams = false;
+  let floor = false;
+  for (const step of steps) {
+    switch (step.piece) {
+      case "minor-table":
+        minorTable = true;
+        break;
+      case "refuted":
+        refuted2 = true;
+        break;
+      case "diagrams":
+        diagrams = true;
+        break;
+      case "floor":
+        floor = true;
+        break;
+      default: {
+        const known = findings.get(step.finding);
+        if (known === void 0 || pieceRank[step.piece] > pieceRank[known]) findings.set(step.finding, step.piece);
+      }
+    }
+  }
+  return { minorTable, refuted: refuted2, diagrams, floor, findings };
+}
+function takes(leftOut, finding, piece) {
+  const known = leftOut.findings.get(finding);
+  return known !== void 0 && pieceRank[known] >= pieceRank[piece];
+}
+function firstFit(steps, size, most, limit) {
+  let prefix = 0;
+  let over = size(0) - limit;
+  while (over > 0 && prefix < steps) {
+    do {
+      over -= most(prefix);
+      prefix += 1;
+    } while (over > 0 && prefix < steps);
+    over = size(prefix) - limit;
+  }
+  return prefix;
+}
+var pieceRank, hasRecord, lastRankedFirst, nothingLeftOut;
+var init_pull_request_fit = __esm({
+  "src/review/pull-request-fit.ts"() {
+    "use strict";
+    init_pull_request_view();
+    init_state();
+    pieceRank = { record: 1, text: 2, line: 3, left: 4 };
+    hasRecord = (finding) => finding.decision !== null && (acts(finding) || finding.left !== null);
+    lastRankedFirst = (findings) => [...findings].sort((a, b) => b.finding.number - a.finding.number);
+    nothingLeftOut = { minorTable: false, refuted: false, diagrams: false, floor: false, findings: /* @__PURE__ */ new Map() };
+  }
+});
+
+// src/review/pull-request-form.ts
+function speakerOf(machine, words, names2, cache = /* @__PURE__ */ new Map()) {
   let secrets = 0;
-  const counted3 = (cleaned2) => {
-    secrets += cleaned2.secrets;
-    return cleaned2.text;
+  const once3 = (kind, text3, clean) => {
+    const key = `${kind}\0${text3}`;
+    let known = cache.get(key);
+    if (known === void 0) {
+      let found = 0;
+      const cleaned2 = clean((part) => {
+        found += part.secrets;
+        return part.text;
+      });
+      known = { text: cleaned2, secrets: found };
+      cache.set(key, known);
+    }
+    secrets += known.secrets;
+    return known.text;
   };
-  const named = (text3) => inlineText(namedFindings2(counted3(withoutSecrets(text3.trim(), machine)), names2, words.naming)).trim();
-  const prose = (text3) => counted3(publicProse(named(text3), machine));
+  const named = (count3, text3) => inlineText(namedFindings2(count3(withoutSecrets(text3.trim(), machine)), names2, words.naming)).trim();
+  const prose = (text3) => once3("prose", text3, (count3) => count3(publicProse(named(count3, text3), machine)));
   return {
-    words: (text3) => counted3(publicWords(named(text3), machine)),
+    words: (text3) => once3("words", text3, (count3) => count3(publicWords(named(count3, text3), machine))),
     prose,
     paragraphs: (text3) => text3.split(/\r?\n[ \t]*\r?\n/).map(prose).filter((paragraph) => paragraph !== "").map(paragraphText),
-    code: (text3) => codeSpan(counted3(publicCode(inlineText(text3), machine))),
-    sentence: (text3) => {
-      const cleaned2 = counted3(publicWords(named(text3), machine));
+    code: (text3) => once3("code", text3, (count3) => codeSpan(count3(publicCode(inlineText(text3), machine)))),
+    sentence: (text3) => once3("sentence", text3, (count3) => {
+      const cleaned2 = count3(publicWords(named(count3, text3), machine));
       return sentenceText(/^[a-z]+(?: |$)/.test(cleaned2) ? capitalized(cleaned2) : cleaned2);
-    },
+    }),
     // A diagram that cleaning broke is left out, so its secrets are counted only when it is posted.
-    diagram: (text3) => {
+    diagram: (text3) => once3("diagram", text3, (count3) => {
       const unsecret = withoutSecrets(text3.replace(/\s+$/, ""), machine);
       const diagram = namedInDiagram(unsecret.text, names2, words.naming);
       if (diagram === null) return words.diagramNamesIds;
       const cleaned2 = publicCode(diagram, machine);
       if (diagramFailures(cleaned2.text).length > 0) return words.diagramBroken;
-      return fenced2(counted3({ text: cleaned2.text, secrets: unsecret.secrets + cleaned2.secrets }));
-    },
+      return fenced2(count3({ text: cleaned2.text, secrets: unsecret.secrets + cleaned2.secrets }));
+    }),
     secrets: () => secrets
   };
 }
@@ -41708,6 +41859,12 @@ function sourceLink(view, source, say) {
   }
   const resolved = resolveCommitSource(source, view.input.commits ?? []);
   return resolved.kind === "one" ? `[${codeSpan(shortCommit(resolved.commit))}](${commitUrl(view.pullRequest, resolved.commit)})` : say.code(source);
+}
+function anchored(view, finding) {
+  if (view.leftOut.floor) return false;
+  const { id } = finding.finding;
+  if (!acts(finding)) return !takes(view.leftOut, id, "left");
+  return isMinor(finding) ? !takes(view.leftOut, id, "line") : !takes(view.leftOut, id, "text");
 }
 function findingRefs(view, numbers) {
   return valueList([...new Set(numbers)].sort((a, b) => a - b).map((number5) => {
@@ -41851,6 +42008,10 @@ function recordBlocks(view, finding, say) {
   if (decision === null) return [];
   const fixText = finding.written?.fix?.text ?? null;
   const writerText2 = fixText === null ? [] : say.paragraphs(fixText).map((paragraph, index2) => [index2 === 0 ? `${words.fixTextLabel} ${paragraph}` : paragraph]);
+  if (takes(view.leftOut, finding.finding.id, "record")) {
+    const fold = writerText2.length === 0 ? [] : details(words.fixTextSummary, ...writerText2);
+    return blocks(fold, [`${words.recordLeftOut} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])}`], choiceRecord(view, finding, say, "open"));
+  }
   const recorded = [];
   if (decision.decision === "fix") {
     recorded.push(`- ${words.approachLabel}: ${say.sentence(decision.fix.approach)}`);
@@ -41904,28 +42065,84 @@ function findingParts(view, finding, say) {
     code: codeLines(view, finding, say, minor)
   };
 }
-function commentOf(view, finding) {
-  const say = speakerOf(view.input.machine, view.words, view.names);
-  const heading = findingHeading(view, finding, say);
-  const parts = findingParts(view, finding, say);
-  const body = blocks(heading, joinedParts(parts), [traceLine(view, finding)], [markerLine(findingMarker(view.state.id, finding.finding.id))]).join("\n");
+function commentOf(view, finding, cache) {
   const { location } = finding.placement;
-  if (body.length > maxPostedLength) {
-    const size = (lines) => lines.join("\n").length;
-    return {
-      kind: "refused",
-      text: { kind: "comment", finding: finding.finding.id, path: location.path, line: location.line },
-      size: body.length,
-      limit: maxPostedLength,
-      parts: [{ part: "explanation", size: size([...heading, ...parts.explanation]) }, { part: "decision", size: size(parts.decision) }, { part: "checked", size: size(parts.checked) }, { part: "code", size: size(parts.code) }]
-    };
-  }
-  return { comment: { finding: finding.finding.id, path: location.path, line: location.line, body }, secrets: say.secrets() };
+  const trace = [[traceLine(view, finding)], [markerLine(findingMarker(view.state.id, finding.finding.id))]];
+  const render = (leftOut) => {
+    const page = { ...view, leftOut, commentsLeftOut: [] };
+    const say = speakerOf(view.input.machine, view.words, view.names, cache);
+    return { body: blocks(findingHeading(page, finding, say), joinedParts(findingParts(page, finding, say)), ...trace).join("\n"), secrets: say.secrets() };
+  };
+  const placed = (body) => ({ finding: finding.finding.id, path: location.path, line: location.line, body });
+  const whole = render(nothingLeftOut);
+  if (whole.body.length <= maxPostedLength) return { comment: placed(whole.body), secrets: whole.secrets, leftOut: null };
+  const unrecorded2 = render(leftOutOf([{ piece: "record", finding: finding.finding.id }]));
+  if (unrecorded2.body.length <= maxPostedLength) return { comment: placed(unrecorded2.body), secrets: unrecorded2.secrets, leftOut: "record" };
+  const { words } = view;
+  const facts = blocks([`**${words.findingLabel} ${String(finding.finding.number)}**`], [findingFacts(view, finding)], [`${words.commentFactsNotice} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])}`], ...trace);
+  return { comment: placed(facts.join("\n")), secrets: 0, leftOut: "text" };
 }
 function headingSection(view) {
+  return { part: "heading", lines: blocks(...headingFacts(view), leftOutNotice(view)) };
+}
+function headingFacts(view) {
   const { words, scope } = view;
   const facts = factsLine([[words.headLabel, codeSpan(shortCommit(scope.head))], [words.baseLabel, codeSpan(shortCommit(scope.base))], [words.filesLabel, String(scope.files.length)], [words.afterLabel, words.afterValues[view.fixPass]]]);
-  return { part: "heading", lines: blocks([words.heading], [facts], view.fixPass === "continued" ? [words.continuedNotice] : []) };
+  return [[words.heading], [facts], view.fixPass === "continued" ? [words.continuedNotice] : []];
+}
+function leftOutNotice(view) {
+  const { words, leftOut } = view;
+  const whole = ["minor-table", "refuted", "diagrams"].filter((piece) => piece === "minor-table" ? leftOut.minorTable : piece === "refuted" ? leftOut.refuted : leftOut.diagrams);
+  const states = [...leftOut.findings.values()];
+  const counts = {
+    records: states.filter((state) => state === "record").length,
+    left: states.filter((state) => state === "left").length,
+    texts: states.filter((state) => state === "text").length,
+    lines: states.filter((state) => state === "line").length,
+    commentRecords: view.commentsLeftOut.filter((comment) => comment.piece === "record").length,
+    commentTexts: view.commentsLeftOut.filter((comment) => comment.piece === "text").length
+  };
+  const counted3 = Object.keys(counts).filter((kind) => counts[kind] > 0);
+  if (whole.length === 0 && counted3.length === 0) return [];
+  const facts = factsLine([
+    ...whole.length === 0 ? [] : [[words.leftOutLabels.whole, valueList(whole.map((piece) => words.wholePieces[piece]))]],
+    ...counted3.map((kind) => [words.leftOutLabels[kind], String(counts[kind])]),
+    [words.reportCommandLabel, codeSpan(reportCommandOf(view))]
+  ]);
+  return [`${words.leftOutNotice} ${facts}`];
+}
+function floorBody(view) {
+  const { words } = view;
+  const comments = ["record", "text"].map((piece) => [piece === "record" ? words.leftOutLabels.commentRecords : words.leftOutLabels.commentTexts, view.commentsLeftOut.filter((comment) => comment.piece === piece).length]).filter(([, count3]) => count3 > 0);
+  const notice = `${words.floorNotice} ${factsLine([...comments.map(([label, count3]) => [label, String(count3)]), [words.reportCommandLabel, codeSpan(reportCommandOf(view))]])}`;
+  const questions = view.findings.filter((finding) => finding.question !== null && (finding.question.answer === null || finding.question.answer.option === null)).length;
+  const departures = view.findings.filter((finding) => finding.departure !== null && finding.departure.review === null).length;
+  const choices = view.findings.reduce((sum, finding) => sum + unsettledChoices(finding), 0);
+  const waiting = factsLine([[words.waitingLabels.questions, String(questions)], [words.waitingLabels.departures, String(departures)], [words.waitingLabels.choices, String(choices)]]);
+  const plausible = view.findings.filter((finding) => finding.decision?.decision === "fix" && finding.finding.verdict === "PLAUSIBLE").length;
+  const looks = [...heldConditionsOf(view).map(({ condition: condition2 }) => words.conditionLabels[condition2]), ...plausible === 0 ? [] : [factsLine([[words.plausibleFixesLabel, String(plausible)]])]].map((item) => `- ${item}`);
+  const kinds = [...new Set(view.brief.notExamined.map((gap) => gap.facts.kind))];
+  const gaps = kinds.length === 0 ? [factsLine([[words.gapsLabel, words.none]])] : kinds.map((kind) => `- ${words.gapLabels[kind]}`);
+  const labels = words.lastLabels;
+  const { configuration } = view.review;
+  const last = factsLine([[labels.engine, `deep-review ${inlineText(view.input.engine)}`], [labels.runtime, configuration.runtime], [labels.run, codeSpan(shortRunId(view.state.id))], [labels.commits, `${shortCommit(view.scope.base)}..${shortCommit(view.scope.head)}`]]);
+  return blocks(
+    ...headingFacts(view),
+    [notice],
+    [words.summaryHeading],
+    ...summaryFacts(view),
+    [words.needsHeading],
+    [waiting],
+    questions + departures === 0 ? [] : answerLine2(view, questions > 0, departures > 0),
+    looks,
+    [words.notExaminedHeading],
+    gaps,
+    [words.trustHeading],
+    ...trustTables(view),
+    postsWriterText(view) ? [words.modelNotice] : [],
+    [last],
+    [markerLine(publicationMarker(view.state.id, view.input.serial))]
+  ).join("\n");
 }
 function coreSection(view, say) {
   const { words, core } = view;
@@ -41935,20 +42152,24 @@ function coreSection(view, say) {
   if (core.kind === "writer") {
     const { title: title2, what, why, whyFrom, diagram } = core.core;
     const reason2 = why === null ? noReason : [[`${words.whyLabel} ${sentenceText(say.prose(why))}`], ...sources(whyFrom)];
-    return { part: "core", lines: blocks([words.coreHeading], [`**${say.prose(title2)}**`], ...say.paragraphs(what).map((paragraph) => [paragraph]), ...reason2, diagram === null ? [] : [say.diagram(diagram)], [words.coreWhoseWriter]) };
+    const drawn = diagram === null ? [] : view.leftOut.diagrams ? [words.coreDiagramCut] : [say.diagram(diagram)];
+    return { part: "core", lines: blocks([words.coreHeading], [`**${say.prose(title2)}**`], ...say.paragraphs(what).map((paragraph) => [paragraph]), ...reason2, drawn, [words.coreWhoseWriter]) };
   }
   const { title, change } = core;
   const reason = change.why === null ? noReason : [[`${words.whyLabel} ${sentenceText(say.words(change.why))}`], ...sources(change.whyFrom)];
   return { part: "core", lines: blocks([words.coreHeading], [`${words.recorded.triage}: **${say.words(title)}**`], [paragraphText(say.words(change.what))], ...reason, [words.coreWhoseTriage]) };
 }
 function summarySection(view, say) {
+  const written = view.summary === null ? [] : say.paragraphs(view.summary).map((paragraph) => [paragraph]);
+  return { part: "summary", lines: blocks([view.words.summaryHeading], ...written, ...summaryFacts(view)) };
+}
+function summaryFacts(view) {
   const { words, counts, decided } = view;
   const labels = words.counts;
   const table = factsTable([labels.findings, labels.critical, labels.major, labels.minor, labels.fix, labels.ask, labels.leave], [[counts.findings, counts.critical, counts.major - counts.critical, counts.minor, decided.fix, decided.ask, decided.leave].map(String)]);
   const acting = decided.fix + decided.ask > 0;
   const next = !acting ? [words.nextNotices.nothing] : view.fixPass === "continued" ? [words.nextNotices.continued] : [`${words.nextNotices["to-come"]} ${factsLine([[words.fixCommandLabel, fixCommand(view)]])}`];
-  const written = view.summary === null ? [] : say.paragraphs(view.summary).map((paragraph) => [paragraph]);
-  return { part: "summary", lines: blocks([words.summaryHeading], ...written, table, ...view.findings.length === 0 ? [] : [next]) };
+  return [table, ...view.findings.length === 0 ? [] : [next]];
 }
 function fileLink(view, path, say) {
   const shown = say.code(path);
@@ -41995,10 +42216,14 @@ function needsSection(view, say) {
   const items = [...questions, ...departures];
   const looks = reasonsToLook(view, say);
   const open2 = view.findings.some((finding) => finding.question !== null && (finding.question.answer === null || finding.question.answer.option === null) || finding.departure !== null && finding.departure.review === null);
-  const flags = [...questions.length === 0 ? [] : ["--option <k>"], ...departures.length === 0 ? [] : ["--accept", "--reject"]].map(codeSpan);
-  const answer3 = items.length === 0 || !open2 ? [] : [[`${words.answerNotices[view.fixPass]} ${factsLine([[words.commandLabel, codeSpan(`deep-review ${answerArguments(view.state.id, "<n>", "").trimEnd()}`)], [words.flagsLabel, valueList(flags)]])}`]];
+  const answer3 = items.length === 0 || !open2 ? [] : [answerLine2(view, questions.length > 0, departures.length > 0)];
   const none = items.length === 0 ? [[factsLine([[words.questionsLabel, words.none], [words.departuresLabel, words.none], ...looks.length > 0 ? [] : [[words.conditionsLabel, view.brief.change.state === "given" ? words.none : words.notJudged]]])]] : [];
   return { part: "needs", lines: blocks([words.needsHeading], ...none, items, ...answer3, ...looks.length === 0 ? [] : [[words.looksNotice], looks]) };
+}
+function answerLine2(view, questions, departures) {
+  const { words } = view;
+  const flags = [...questions ? ["--option <k>"] : [], ...departures ? ["--accept", "--reject"] : []].map(codeSpan);
+  return [`${words.answerNotices[view.fixPass]} ${factsLine([[words.commandLabel, codeSpan(`deep-review ${answerArguments(view.state.id, "<n>", "").trimEnd()}`)], [words.flagsLabel, valueList(flags)]])}`];
 }
 function gapFacts(view, gap, say) {
   const { words } = view;
@@ -42030,11 +42255,11 @@ function gapFacts(view, gap, say) {
       return factsLine([[labels.workers, String(gap.count)]]);
   }
 }
-function notExaminedSection(view, say, cuts) {
+function notExaminedSection(view, say) {
   const { words } = view;
   const gaps = view.brief.notExamined.map((gap) => gap.facts);
   const checks = view.fixPass === "continued" ? words.noCheckContinued : factsLine([[words.checksRunLabel, words.none]]);
-  const cut = cuts.has("refuted");
+  const cut = view.leftOut.refuted;
   const count3 = view.refuted.length;
   const refutedLine = count3 === 0 ? [] : [cut ? `${factsLine([[words.refutedLabel, String(count3)], [words.notListedLabel, String(count3)]])} ${words.refutedCut}` : factsLine([[words.refutedLabel, String(count3)]])];
   const items = [checks, ...gaps.length === 0 ? [factsLine([[words.gapsLabel, words.none]])] : gaps.map((gap) => gapFacts(view, gap, say)), ...refutedLine].map((line) => `- ${line}`);
@@ -42079,12 +42304,13 @@ function findingLine(view, finding, say) {
   const { words } = view;
   const action = actionText(view, finding, say);
   const facts = factsLine([[words.verdictLabel, verdictText(view, finding)], [words.decisionLabel, words.decisionValues[decisionValue(finding)]], ...finding.question === null ? [] : [[words.recommendedLabel, String(finding.question.choice)]]]);
-  return [`**${findingRef(view, finding)}.** ${sentenceText(titleText(view, finding, say))}`, facts, ...action === null ? [] : [action]].join(" ");
+  const command = takes(view.leftOut, finding.finding.id, "text") ? [factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])] : [];
+  return [`**${findingRef(view, finding)}.** ${sentenceText(titleText(view, finding, say))}`, facts, ...action === null ? [] : [action], ...command].join(" ");
 }
-function areasSection(view, say, cuts) {
+function areasSection(view, say) {
   const { words } = view;
   if (majorActing(view).length === 0) return { part: "areas", lines: [words.areasHeading, "", words.noMajor] };
-  const diagrams = !cuts.has("area-diagrams");
+  const diagrams = !view.leftOut.diagrams;
   const given = areasOf(view, say);
   const areas = given.flatMap((area) => {
     const lines = area.findings.map((finding) => `- ${findingLine(view, finding, say)}`);
@@ -42094,23 +42320,21 @@ function areasSection(view, say, cuts) {
   const cut = !diagrams && given.some((area) => area.diagram !== null);
   return { part: "areas", lines: blocks([words.areasHeading], ...areas, ...cut ? [[words.areaDiagramsCut]] : []) };
 }
-function inFullSection(view, say) {
-  const full = view.findings.filter(inFull);
-  return {
-    part: "findings in full",
-    lines: full.flatMap((finding, index2) => [
-      ...index2 === 0 ? [] : [""],
-      `<a id="${findingAnchor(finding.finding.number)}"></a>`,
-      "",
-      `### ${view.words.findingLabel} ${String(finding.finding.number)}`,
-      "",
-      titleLine(view, finding, say),
-      "",
-      ...joinedParts(findingParts(view, finding, say))
-    ])
-  };
+function inFullBlock(view, finding, say) {
+  return [`<a id="${findingAnchor(finding.finding.number)}"></a>`, "", `### ${view.words.findingLabel} ${String(finding.finding.number)}`, "", titleLine(view, finding, say), "", ...joinedParts(findingParts(view, finding, say))];
 }
-function minorSection(view, say, cuts) {
+function inFullSection(view, say) {
+  const { words, leftOut } = view;
+  const full = view.findings.filter(inFull);
+  const shown = full.filter((finding) => !takes(leftOut, finding.finding.id, "text"));
+  const items = full.filter((finding) => isMinor(finding) && leftOut.findings.get(finding.finding.id) === "text");
+  const unlisted = full.filter((finding) => takes(leftOut, finding.finding.id, "line")).length;
+  const blocksShown = shown.flatMap((finding, index2) => [...index2 === 0 ? [] : [""], ...inFullBlock(view, finding, say)]);
+  const list = items.length === 0 ? [] : [`${words.textsLeftLabel} ${words.textsLeftNotice}`, "", ...items.map((finding) => `- <a id="${findingAnchor(finding.finding.number)}"></a>${findingLine(view, finding, say)}`)];
+  const count3 = unlisted === 0 ? [] : [`${factsLine([[words.notListedLabel, String(unlisted)]])} ${words.linesLeftNotice}`];
+  return { part: "findings in full", lines: blocks(blocksShown, list, count3) };
+}
+function minorSection(view, say) {
   const { words } = view;
   const minor = minorActing(view);
   if (minor.length === 0) return { part: "minor", lines: [] };
@@ -42120,7 +42344,7 @@ function minorSection(view, say, cuts) {
   const needing = minor.filter((finding) => finding.question !== null || finding.departure !== null).map((finding) => finding.finding.number);
   const labels = words.minorLabels;
   const counts = factsLine([[labels.total, String(minor.length)], [labels.user, String(user)], [labels.code, String(code)], ...none === 0 ? [] : [[labels.none, String(none)]], [labels.onLine, String(minor.filter((finding) => finding.placement.place === "line").length)], ...needing.length === 0 ? [] : [[labels.needs, findingRefs(view, needing)]]]);
-  if (cuts.has("minor-table")) return { part: "minor", lines: blocks([words.minorHeading], [counts], [words.minorCut]) };
+  if (view.leftOut.minorTable) return { part: "minor", lines: blocks([words.minorHeading], [counts], [words.minorCut]) };
   const columns = words.minorColumns;
   const rows = minor.map((finding) => {
     const action = actionText(view, finding, say);
@@ -42131,37 +42355,38 @@ function minorSection(view, say, cuts) {
   });
   return { part: "minor", lines: blocks([words.minorHeading], [counts], details(words.minorSummary, factsTable([columns.number, columns.finding, columns.kind, columns.verdict, columns.action], rows))) };
 }
-function leftSection(view, say, cuts) {
+function leftSection(view, say) {
   const { words } = view;
   const left = leftAsIs(view);
   if (left.length === 0) return { part: "left as is", lines: [] };
-  const shown = cuts.has("left") ? left.filter(keptByCut) : left;
+  const shown = left.filter((finding) => !takes(view.leftOut, finding.finding.id, "left"));
   const others = left.length - shown.length;
   const cutNotice = others === 0 ? [] : [`${factsLine([[words.notListedLabel, String(others)]])} ${words.leftCut}`];
   if (shown.length === 0) return { part: "left as is", lines: blocks([words.leftHeading], cutNotice) };
-  const block = (finding) => {
-    const leave = finding.decision?.decision === "leave" ? finding.decision : null;
-    const by = leave?.leave.supersededBy ?? null;
-    const byFinding = by === null ? null : view.findings.find((candidate) => candidate.finding.id === by || candidate.finding.merged.includes(by)) ?? null;
-    const reason = leave === null ? [] : [[words.reasonLabel, words.leaveReasons[leave.leave.reason]], ...byFinding === null ? [] : [[words.supersededByLabel, findingRef(view, byFinding)]]];
-    const why = finding.left !== null ? [[`${words.leftWhyLabel} ${sentenceText(say.prose(finding.left.why))}`]] : leave === null ? [] : [[`${words.leftWhyLabel} ${recordedWords(view, "decider", say.sentence(leave.grounds))}`]];
-    const { location } = finding.placement;
-    return blocks(
-      [`<a id="${findingAnchor(finding.finding.number)}"></a>`],
-      [`**${words.findingLabel} ${String(finding.finding.number)}**`],
-      [titleLine(view, finding, say)],
-      [findingFacts(view, finding, reason)],
-      ...why,
-      ...settledFacts(view, finding),
-      location === null ? [] : [factsLine([[words.codeLabel, locationLink(view, location)]])],
-      finding.left === null ? choiceRecord(view, finding, say) : recordBlocks(view, finding, say)
-    );
-  };
-  return { part: "left as is", lines: blocks([words.leftHeading], details(words.leftSummary, ...shown.map(block)), cutNotice) };
+  return { part: "left as is", lines: blocks([words.leftHeading], details(words.leftSummary, ...shown.map((finding) => leftBlock(view, finding, say))), cutNotice) };
 }
-function choiceRecord(view, finding, say) {
+function leftBlock(view, finding, say) {
   const { words } = view;
-  return choicesShown(finding.choices, finding.decision?.settled ?? []).flatMap((shown) => {
+  const leave = finding.decision?.decision === "leave" ? finding.decision : null;
+  const by = leave?.leave.supersededBy ?? null;
+  const byFinding = by === null ? null : view.findings.find((candidate) => candidate.finding.id === by || candidate.finding.merged.includes(by)) ?? null;
+  const reason = leave === null ? [] : [[words.reasonLabel, words.leaveReasons[leave.leave.reason]], ...byFinding === null ? [] : [[words.supersededByLabel, findingRef(view, byFinding)]]];
+  const why = finding.left !== null ? [[`${words.leftWhyLabel} ${sentenceText(say.prose(finding.left.why))}`]] : leave === null ? [] : [[`${words.leftWhyLabel} ${recordedWords(view, "decider", say.sentence(leave.grounds))}`]];
+  const { location } = finding.placement;
+  return blocks(
+    [`<a id="${findingAnchor(finding.finding.number)}"></a>`],
+    [`**${words.findingLabel} ${String(finding.finding.number)}**`],
+    [titleLine(view, finding, say)],
+    [findingFacts(view, finding, reason)],
+    ...why,
+    ...settledFacts(view, finding),
+    location === null ? [] : [factsLine([[words.codeLabel, locationLink(view, location)]])],
+    finding.left === null ? choiceRecord(view, finding, say) : recordBlocks(view, finding, say)
+  );
+}
+function choiceRecord(view, finding, say, only = "all") {
+  const { words } = view;
+  return choicesShown(finding.choices, finding.decision?.settled ?? []).filter((shown) => only === "all" || shown.settled === null).flatMap((shown) => {
     const settled4 = shown.settled === null ? labeledValue(words.settledChoiceLabel, words.notSettled) : `${words.settledChoiceLabel}: ${say.sentence(shown.settled.choice)} ${factsLine([[words.settledByLabel, words.settleSteps[shown.settled.by]]])} ${words.sourceLabel}: ${say.sentence(shown.settled.source)}`;
     const verifiers = shown.verifiers.map((choice) => `${words.verifierChoiceLabel}: ${say.sentence(choice)}`);
     return verifiers.length > 1 ? [`- ${settled4}`, ...verifiers.map((choice) => `  - ${choice}`)] : [`- ${[...verifiers, settled4].join(" ")}`];
@@ -42182,22 +42407,21 @@ function missingParts(view) {
   const findings = view.findings.filter((finding) => acts(finding) && finding.explained.kind !== "explained");
   return [...parts.map((part) => words.writerParts[part]), ...findings.map((finding) => findingRef(view, finding))];
 }
-function postsWriterText(view, cuts) {
-  return view.core.kind === "writer" || heldConditionsOf(view).some((entry) => writerConditionOf(view, entry.condition) !== null) || view.summary !== null || view.notExamined !== null || view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0 || !cuts.has("refuted") && view.refuted.some((line) => line.claim !== null || line.why !== null) || leftAsIs(view).some((finding) => finding.left !== null && (!cuts.has("left") || keptByCut(finding))) || view.findings.some((finding) => acts(finding) && (finding.written !== null || finding.explained.kind === "unexplained" && finding.explained.reason !== null));
+function postsWriterText(view) {
+  if (view.leftOut.floor) return view.findings.some((finding) => finding.placement.place === "line" && postsFindingText(view, finding));
+  return view.core.kind === "writer" || heldConditionsOf(view).some((entry) => writerConditionOf(view, entry.condition) !== null) || view.summary !== null || view.notExamined !== null || view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0 || !view.leftOut.refuted && view.refuted.some((line) => line.claim !== null || line.why !== null) || leftAsIs(view).some((finding) => finding.left !== null && !takes(view.leftOut, finding.finding.id, "left")) || view.findings.some((finding) => acts(finding) && postsFindingText(view, finding));
 }
-function trustSection(view, cuts) {
+function postsFindingText(view, finding) {
+  const { id } = finding.finding;
+  if (finding.placement.place === "line") return !view.commentsLeftOut.some((comment) => comment.finding === id && comment.piece === "text") && (finding.written !== null || finding.explained.kind === "unexplained" && finding.explained.reason !== null);
+  if (finding.written !== null) return !isMinor(finding) || !takes(view.leftOut, id, "line");
+  return finding.explained.kind === "unexplained" && finding.explained.reason !== null && !takes(view.leftOut, id, "text");
+}
+function trustSection(view) {
   const { words, counts } = view;
-  const columns = words.verdictColumns;
-  const unverified = counts.unverified === 0 ? [] : [columns.unverified];
-  const verdicts2 = factsTable([columns.verdict, columns.findings, columns.major, columns.majorRan, ...unverified], [
-    ["CONFIRMED", String(counts.confirmed), String(counts.majorConfirmed), String(counts.majorConfirmedRan), ...counts.unverified === 0 ? [] : ["0"]],
-    ["PLAUSIBLE", String(counts.plausible), String(counts.major - counts.majorConfirmed), "", ...counts.unverified === 0 ? [] : [String(counts.unverified)]]
-  ]);
-  const bases = ["ran", "traced", "read"].filter((basis) => counts.bases[basis] > 0).map((basis) => [words.basisValues[basis], String(counts.bases[basis])]);
-  const basisTable = counts.findings === 0 ? [] : factsTable([words.basisColumns.basis, words.basisColumns.findings], [...bases, ...counts.noBasis === 0 ? [] : [[words.noBasisValue, String(counts.noBasis)]]]);
   const candidates = factsLine([[words.counts.candidates, String(counts.candidates)], [words.counts.refuted, String(counts.refuted)]]);
   const notes = [];
-  if (postsWriterText(view, cuts)) notes.push([words.modelNotice]);
+  if (postsWriterText(view)) notes.push([words.modelNotice]);
   if (view.recorded === null) notes.push([words.noExplanation]);
   const missing = missingParts(view);
   if (missing.length > 0) notes.push([factsLine([[words.missingLabel, valueList(missing)]])]);
@@ -42205,7 +42429,19 @@ function trustSection(view, cuts) {
     const answered2 = [...standingAnswers(view.review).keys()].map((id) => view.brief.numbers.get(id));
     if (answered2.length > 0) notes.push([factsLine([[words.answeredAfterLabel, findingRefs(view, [...new Set(answered2)].sort((a, b) => a - b))]])]);
   }
-  return { part: "trust", lines: blocks([words.trustHeading], counts.findings === 0 ? [] : verdicts2, basisTable, [candidates], ...notes) };
+  return { part: "trust", lines: blocks([words.trustHeading], ...trustTables(view), [candidates], ...notes) };
+}
+function trustTables(view) {
+  const { words, counts } = view;
+  if (counts.findings === 0) return [];
+  const columns = words.verdictColumns;
+  const unverified = counts.unverified === 0 ? [] : [columns.unverified];
+  const verdicts2 = factsTable([columns.verdict, columns.findings, columns.major, columns.majorRan, ...unverified], [
+    ["CONFIRMED", String(counts.confirmed), String(counts.majorConfirmed), String(counts.majorConfirmedRan), ...counts.unverified === 0 ? [] : ["0"]],
+    ["PLAUSIBLE", String(counts.plausible), String(counts.major - counts.majorConfirmed), "", ...counts.unverified === 0 ? [] : [String(counts.unverified)]]
+  ]);
+  const bases = ["ran", "traced", "read"].filter((basis) => counts.bases[basis] > 0).map((basis) => [words.basisValues[basis], String(counts.bases[basis])]);
+  return [verdicts2, factsTable([words.basisColumns.basis, words.basisColumns.findings], [...bases, ...counts.noBasis === 0 ? [] : [[words.noBasisValue, String(counts.noBasis)]]])];
 }
 function lastSection(view, say) {
   const { configuration } = view.review;
@@ -42225,67 +42461,74 @@ function lastSection(view, say) {
     ]
   };
 }
-function renderBody(view, cuts) {
-  const say = speakerOf(view.input.machine, view.words, view.names);
+function renderBody(view, leftOut, commentsLeftOut, cache) {
+  const say = speakerOf(view.input.machine, view.words, view.names, cache);
+  const page = { ...view, leftOut, commentsLeftOut };
+  if (leftOut.floor) return { sections: [], text: floorBody(page), secrets: 0 };
   const sections = [
-    headingSection(view),
-    coreSection(view, say),
-    summarySection(view, say),
-    needsSection(view, say),
-    notExaminedSection(view, say, cuts),
-    howSection(view),
-    areasSection(view, say, cuts),
-    inFullSection(view, say),
-    minorSection(view, say, cuts),
-    leftSection(view, say, cuts),
-    trustSection(view, cuts),
-    lastSection(view, say)
+    headingSection(page),
+    coreSection(page, say),
+    summarySection(page, say),
+    needsSection(page, say),
+    notExaminedSection(page, say),
+    howSection(page),
+    areasSection(page, say),
+    inFullSection(page, say),
+    minorSection(page, say),
+    leftSection(page, say),
+    trustSection(page),
+    lastSection(page, say)
   ].filter((section) => section.lines.length > 0);
   return { sections, text: sections.map((section) => section.lines.join("\n")).join("\n\n"), secrets: say.secrets() };
 }
-function cutApplies(view, cut) {
-  switch (cut) {
-    case "refuted":
-      return view.refuted.length > 0;
-    case "left":
-      return leftAsIs(view).some((finding) => !keptByCut(finding));
-    case "minor-table":
-      return minorActing(view).length > 0;
-    case "area-diagrams":
-      return majorActing(view).length > 0 && view.areas !== null && view.areas.some((area) => area.diagram !== null);
-  }
+function stepBounds(view, order, whole, cache) {
+  const say = speakerOf(view.input.machine, view.words, view.names, cache);
+  const page = { ...view, leftOut: nothingLeftOut, commentsLeftOut: [] };
+  const links = /* @__PURE__ */ new Map();
+  for (const [, number5] of whole.matchAll(/\]\(#finding-(\d+)\)/g)) links.set(number5, (links.get(number5) ?? 0) + 1);
+  const size = (lines) => lines.join("\n").length + 2;
+  const bounds = new Map(view.findings.filter((finding) => finding.placement.place === "body").map((finding) => {
+    const block = acts(finding) ? inFullBlock(page, finding, say) : leftBlock(page, finding, say);
+    const link = (links.get(String(finding.finding.number)) ?? 0) * `[](#${findingAnchor(finding.finding.number)})`.length;
+    return [finding.finding.id, size(block) + size([findingLine(page, finding, say)]) + link + stepElsewhere];
+  }));
+  return (step) => {
+    const taken = order[step];
+    return "finding" in taken ? bounds.get(taken.finding) ?? Infinity : Infinity;
+  };
 }
 function pullRequestForm(input2) {
   const view = formViewOf(input2);
+  const cache = /* @__PURE__ */ new Map();
   const comments = [];
+  const commentsLeftOut = [];
   let secrets = 0;
   for (const finding of view.findings) {
     if (finding.placement.place !== "line") continue;
-    const rendered = commentOf(view, { ...finding, placement: finding.placement });
-    if ("kind" in rendered) return rendered;
+    const rendered = commentOf(view, { ...finding, placement: finding.placement }, cache);
     comments.push(rendered.comment);
+    if (rendered.leftOut !== null) commentsLeftOut.push({ finding: finding.finding.id, piece: rendered.leftOut });
     secrets += rendered.secrets;
   }
-  const applicable = bodyCuts.filter((cut) => cutApplies(view, cut));
-  let body = renderBody(view, /* @__PURE__ */ new Set());
-  let made = 0;
-  while (body.text.length > maxPostedLength && made < applicable.length) {
-    made += 1;
-    body = renderBody(view, new Set(applicable.slice(0, made)));
-  }
-  if (body.text.length > maxPostedLength) {
-    return { kind: "refused", text: { kind: "body" }, size: body.text.length, limit: maxPostedLength, parts: body.sections.map((section) => ({ part: section.part, size: section.lines.join("\n").length })) };
-  }
+  const order = fitOrder(view);
+  const whole = renderBody(view, nothingLeftOut, commentsLeftOut, cache);
+  const most = stepBounds(view, order, whole.text, cache);
+  let body = whole;
+  const made = firstFit(order.length, (prefix) => {
+    body = prefix === 0 ? whole : renderBody(view, leftOutOf(order.slice(0, prefix)), commentsLeftOut, cache);
+    return body.text.length;
+  }, most, maxPostedLength);
+  if (body.text.length > maxPostedLength) throw new Error(`The floor of the review of run ${view.state.id} is ${String(body.text.length)} characters, over the ${String(maxPostedLength)} a review posts`);
   return {
     kind: "rendered",
     body: body.text,
     comments,
     places: input2.places.map(({ finding, place, reason }) => ({ finding, place, reason })),
     secrets: secrets + body.secrets,
-    cuts: applicable.slice(0, made)
+    leftOut: { body: order.slice(0, made), comments: commentsLeftOut }
   };
 }
-var maxPostedLength, shortCommit, bodyCuts, acts, isMinor, inFull, blocks, details, urlPath, repositoryUrl, fileUrl, commitUrl, headUrl, locationLink, hrefOf, verdictMarks, verdictText, recordedWords, findingRef, writtenTitle, findingHeading, joinedParts, traceLine, fixCommand, repositoryPathLike, writerConditionOf, conditionJudgment, majorActing, minorActing, leftAsIs, keptByCut;
+var maxPostedLength, shortCommit, blocks, details, urlPath, repositoryUrl, fileUrl, commitUrl, headUrl, locationLink, hrefOf, verdictMarks, verdictText, recordedWords, findingRef, writtenTitle, findingHeading, reportCommand, joinedParts, traceLine, fixCommand, reportCommandOf, repositoryPathLike, writerConditionOf, conditionJudgment, stepElsewhere;
 var init_pull_request_form = __esm({
   "src/review/pull-request-form.ts"() {
     "use strict";
@@ -42299,16 +42542,13 @@ var init_pull_request_form = __esm({
     init_needs();
     init_prompts();
     init_public_text();
+    init_pull_request_fit();
     init_pull_request_view();
     init_runs();
     init_state();
     init_vocabulary();
     maxPostedLength = 6e4;
     shortCommit = (commit2) => commit2.slice(0, 8);
-    bodyCuts = ["refuted", "left", "minor-table", "area-diagrams"];
-    acts = (view) => asksToAct(view.decision?.decision);
-    isMinor = (view) => view.finding.severity === "minor";
-    inFull = (view) => acts(view) && view.placement.place === "body";
     blocks = (...parts) => parts.filter((part) => part.length > 0).flatMap((part, index2) => index2 === 0 ? [...part] : ["", ...part]);
     details = (summary, ...parts) => blocks([`<details><summary>${summary}</summary>`], ...parts, ["</details>"]);
     urlPath = (path) => path.split("/").map((name) => encodeURIComponent(name).replace(/\(/g, "%28").replace(/\)/g, "%29")).join("/");
@@ -42317,26 +42557,29 @@ var init_pull_request_form = __esm({
     commitUrl = (pullRequest, commit2) => `${repositoryUrl(pullRequest)}/commit/${commit2}`;
     headUrl = (view, location) => blobUrl(view.pullRequest, view.scope.head, location.path, location.line, location.line);
     locationLink = (view, location) => `[${codeSpan(inlineText(`${location.path}:${String(location.line)}`))}](${headUrl(view, location)})`;
-    hrefOf = (view, finding) => finding.placement.place === "line" ? headUrl(view, finding.placement.location) : `#${findingAnchor(finding.finding.number)}`;
+    hrefOf = (view, finding) => {
+      if (finding.placement.place === "line") return headUrl(view, finding.placement.location);
+      return anchored(view, finding) ? `#${findingAnchor(finding.finding.number)}` : null;
+    };
     verdictMarks = (view, finding) => finding.entry.resolution.unverified ? [view.words.unverifiedMark] : [];
     verdictText = (view, finding) => [finding.finding.verdict, ...verdictMarks(view, finding)].join(", ");
     recordedWords = (view, speaker, text3) => `${view.words.recorded[speaker]}: ${text3}`;
-    findingRef = (view, finding) => `[${view.words.findingLabel} ${String(finding.finding.number)}](${hrefOf(view, finding)})`;
+    findingRef = (view, finding) => {
+      const href = hrefOf(view, finding);
+      const said2 = `${view.words.findingLabel} ${String(finding.finding.number)}`;
+      return href === null ? said2 : `[${said2}](${href})`;
+    };
     writtenTitle = (finding) => finding.left?.title ?? finding.written?.title;
     findingHeading = (view, finding, say) => [`**${view.words.findingLabel} ${String(finding.finding.number)}**`, "", titleLine(view, finding, say)];
+    reportCommand = (view, finding) => `deep-review report --run ${shortRunId(view.state.id)} --finding ${String(finding.finding.number)}`;
     joinedParts = (parts) => blocks(parts.explanation, parts.decision, parts.checked, parts.code);
     traceLine = (view, finding) => `<sub>${factsLine([[view.words.findingLabel, codeSpan(inlineText(finding.finding.id))], [view.words.runLabel, codeSpan(shortRunId(view.state.id))]])}</sub>`;
     fixCommand = (view) => codeSpan(`deep-review review --pr ${String(view.pullRequest.number)} --fix`);
+    reportCommandOf = (view) => `deep-review report --run ${shortRunId(view.state.id)} --finding <n>`;
     repositoryPathLike = (path) => path !== "" && !path.includes("\\") && !/^[A-Za-z]:/.test(path) && path.split("/").every((name) => name !== "" && name !== "." && name !== "..");
     writerConditionOf = (view, condition2) => view.conditions?.find((entry) => entry.condition === condition2) ?? null;
     conditionJudgment = { "public-interface": "publicInterface", "wide-effect": "wideEffect" };
-    majorActing = (view) => view.findings.filter((finding) => !isMinor(finding) && acts(finding));
-    minorActing = (view) => {
-      const minor = view.findings.filter((finding) => isMinor(finding) && acts(finding));
-      return [...minor.filter((finding) => finding.kind === "user"), ...minor.filter((finding) => finding.kind !== "user")];
-    };
-    leftAsIs = (view) => view.findings.filter((finding) => !acts(finding));
-    keptByCut = (finding) => finding.choices.some((candidate) => candidate.choice !== null);
+    stepElsewhere = 4e3;
   }
 });
 
@@ -42489,6 +42732,42 @@ function requireUnmoved(gh, run2, unrecorded2) {
   }
   return facts.changedFiles;
 }
+function findingPieceWords(piece, numbers) {
+  const findings = `${numbers.length === 1 ? "finding" : "findings"} ${numbers.join(", ")}`;
+  switch (piece) {
+    case "record":
+      return `the recorded decision of ${findings}`;
+    case "left":
+      return `${findings}, left as is`;
+    case "text":
+      return `the text of ${findings}`;
+    case "line":
+      return `the line of ${findings}`;
+  }
+}
+function bodyLeftOutWords(run2, steps) {
+  const numbers = briefOf(run2).numbers;
+  const items = [];
+  for (const step of steps) {
+    if (!("finding" in step)) {
+      items.push({ whole: step.piece });
+      continue;
+    }
+    const last = items.at(-1);
+    const number5 = numbers.get(step.finding) ?? 0;
+    if (last !== void 0 && "piece" in last && last.piece === step.piece) last.findings.push(number5);
+    else items.push({ piece: step.piece, findings: [number5] });
+  }
+  if (items.length === 0) return "nothing";
+  return items.map((item) => "whole" in item ? wholeWords[item.whole] : findingPieceWords(item.piece, item.findings)).join(", then ");
+}
+function leftOutLines(run2, form) {
+  const numbers = briefOf(run2).numbers;
+  return [
+    `Left out of the body to fit: ${bodyLeftOutWords(run2, form.leftOut.body)}.`,
+    ...form.leftOut.comments.map((comment) => `Left out of the comment of finding ${String(numbers.get(comment.finding) ?? "?")} (${comment.finding}) to fit: ${comment.piece === "record" ? "its recorded decision" : "its text, so it posts its facts alone"}.`)
+  ];
+}
 function placeWords(placement) {
   const location = placement.location === null ? "" : `${placement.location.path}:${String(placement.location.line)}`;
   switch (placement.reason) {
@@ -42513,7 +42792,7 @@ function dryRunLines(run2, placements, form, notes) {
     ...notes,
     "Where each finding goes:",
     ...placements.length === 0 ? ["- no finding"] : placements.map((placement) => `- ${numbered(placement.finding)}: ${placeWords(placement)}`),
-    `Cut from the body to fit: ${form.cuts.length === 0 ? "nothing" : form.cuts.map((cut) => cutWords[cut]).join(", then ")}.`,
+    ...leftOutLines(run2, form),
     `Secrets replaced by the cleaning: ${String(form.secrets)}.`,
     "",
     `--- The body of the review, ${counted(form.body.length, "character", "characters")} ---`,
@@ -42600,9 +42879,8 @@ function publishLocked(options2, runId, log) {
     serial,
     commits
   });
-  if (form.kind === "refused") throw new ReviewRefusedError(`${formRefusalWords(form)}; ${unrecorded2}, and the report of the run holds all of it`);
   if (dryRun) return { kind: "dry-run", runId: run2.id, lines: dryRunLines(reviewed, placements, form, notes) };
-  if (form.cuts.length > 0) log(`run ${run2.id}: the body of the review is cut to fit: ${form.cuts.map((cut) => cutWords[cut]).join(", then ")}; the report of the run holds all of it`);
+  if (form.leftOut.body.length > 0 || form.leftOut.comments.length > 0) log(`run ${run2.id}: the review leaves out pieces to fit the length GitHub takes, as the notice under its heading says. ${leftOutLines(reviewed, form).join(" ")}`);
   const review2 = { commit: scope.head, body: form.body, comments: form.comments.map(({ path, line, body }) => ({ path, line, body })) };
   const prepared = {
     marker: publicationMarker(run2.id, serial),
@@ -42638,7 +42916,7 @@ function publishLocked(options2, runId, log) {
   if (posted.comments.length !== form.comments.length) log(`run ${run2.id}: the review has ${counted(posted.comments.length, "comment", "comments")} that carry the marker of a finding, of the ${String(form.comments.length)} posted`);
   return { kind: "posted", runId: run2.id, url: made.url, how: "posted", comments: posted.comments.length };
 }
-var targetOf, hasFinishedReview, unrecordedWords, readRefusal, cutWords, recordedMessage;
+var targetOf, hasFinishedReview, unrecordedWords, readRefusal, wholeWords, recordedMessage;
 var init_publish = __esm({
   "src/review/publish.ts"() {
     "use strict";
@@ -42666,11 +42944,11 @@ var init_publish = __esm({
     hasFinishedReview = (run2) => hasCurrentReport(run2) || (run2.review?.continuedFrom ?? null) !== null;
     unrecordedWords = (settled4) => settled4 === null ? "nothing was posted or recorded" : `nothing was posted, and only that no review carries the publication ${settled4}, which a stop left open, was recorded`;
     readRefusal = (target, unrecorded2) => ({ host: target.host, pullRequest: pullRequestLabel(target), recorded: unrecorded2 });
-    cutWords = {
-      refuted: "the refuted candidates",
-      left: "the findings left as is whose verifiers named no choice",
+    wholeWords = {
       "minor-table": "the table of the minor findings",
-      "area-diagrams": "the diagrams of the areas"
+      refuted: "the refuted candidates",
+      diagrams: "the diagrams of the areas and of the core of the change",
+      floor: "everything but the floor"
     };
     recordedMessage = (failure2) => cutAtWord(failure2.message ?? `GitHub gave no message with its ${String(failure2.status)}`, recordedTextLengthV1);
   }
