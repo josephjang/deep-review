@@ -251,7 +251,7 @@ The new tests hold the checks, the merge and the task of version 4 (`test/review
 
 ### What was not verified
 
-The review of this pull request itself was not posted: its body is over GitHub's limit after every cut, the case RK10 of the requirements names (#136). Its reading below rests on a print with the limit raised. The gate posted the review of one other run, on a private copy of this repository. Each run had one writer and one answer, so the gate measures no spread between runs of the same pull request. The defects that the gate found and deep-review's review did not, listed at its end, are not fixed in this series.
+The review of this pull request itself was not posted: its body is over GitHub's limit after every cut, the case RK10 of the requirements names (#136). Its reading below rests on a print with the limit raised. The gate posted the review of one other run, on a private copy of this repository. Each run had one writer and one answer, so the gate measures no spread between runs of the same pull request. The fixes of the defects that the gate found and deep-review's review did not, listed at its end, ran no real review after them: their tests hold each one.
 
 ### The measure of OQ1
 
@@ -310,13 +310,13 @@ The review of deb3f378 was posted on its pull request after the author's approva
 
 deep-review's own review of this pull request decided 23 fixes. Its fix pass, continued from that run (14.30 USD, 45.14 USD for the run), fixed 22 of them, and its commits, one for each finding, came to this branch with #137: among them, the record of a finding left as is no longer says that an answer and the fix pass apply its words; the trust notice says that the tables and labeled values stand where a sentence differs, as R7 asks; the writer's text of a fix in full keeps its paragraphs; and a sentence that ends with a Chinese or Japanese stop no longer gets a Latin one. Build, typecheck, lint and test passed after the fixes. Its fixer put off the one other, which would escape only the pipes of a table cell not escaped already: GitHub removes the backslash of `\|` in a cell even inside a code span, so the decided escape would itself change the text.
 
-The gate found these defects of the change, which deep-review's review did not and the series does not yet fix:
+The gate found these defects of the change, which deep-review's review did not; a commit of its own fixes each, with a test that fails without it:
 
-- A list of findings repeats a finding once for each candidate merged into it: "합쳐진 후보를 검증자가 검토하지 않은 지적 사항: 지적 사항 3, 지적 사항 3, 지적 사항 3, 지적 사항 3, 지적 사항 1" (the facts of the unverified gap, in `brief.ts` and `pull-request-form.ts`), where the report says "findings 1 and 3".
-- Where the writer's areas are missing, the counts of the minor findings count a finding with no kind as about the code, while its row says the kind is not decided ("코드에만 관한 것: 4" beside four rows of "정하지 않음").
-- The writer of 6344d0d8 escaped the line breaks of its summary, and the body shows `\n\n` in its text; no check refuses it.
-- Where the writer's text of a fix or a question is missing, the record in full stands in view beside the decider's words that replace the writer's sentence, so the approach, or each option, is shown twice.
-- Each verifier's choice that one settlement settles is joined into one list item, its label repeated before each.
+- A list of findings repeats a finding once for each candidate merged into it: "합쳐진 후보를 검증자가 검토하지 않은 지적 사항: 지적 사항 3, 지적 사항 3, 지적 사항 3, 지적 사항 3, 지적 사항 1" (the facts of the unverified gap, in `brief.ts` and `pull-request-form.ts`), where the report says "findings 1 and 3". A list of findings now links each once, in ascending order ("fix(form): Link each finding of a list once and in ascending order").
+- Where the writer's areas are missing, the counts of the minor findings count a finding with no kind as about the code, while its row says the kind is not decided ("코드에만 관한 것: 4" beside four rows of "정하지 않음"). Such findings are now counted apart, under their own label, when there are any ("fix(form): Count a minor finding with no reach given apart from code").
+- The writer of 6344d0d8 escaped the line breaks of its summary, and the body shows `\n\n` in its text; no check refused it. The checks of version 4 now refuse the two characters outside a code span, and the retry is told to write a real line break ("fix(explanation): Refuse an escaped line break in the writer's text", after the design's amendment "docs(changes): Refuse an escaped line break in the writer's text").
+- Where the writer's text of a fix or a question is missing, the record in full stands in view beside the decider's words that replace the writer's sentence, so the approach, or each option, is shown twice. The record is now folded there too ("fix(form): Fold the decision's record where no writer's text stands", after the design's amendment "docs(changes): Fold the decision's record where no writer's text stands").
+- Each verifier's choice that one settlement settles is joined into one list item, its label repeated before each. Where one settlement settles several, each verifier's choice is now an item nested under it ("fix(form): Nest the verifiers' choices one settlement settles").
 
 ### Changes of the proposal during the work
 
