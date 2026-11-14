@@ -15,7 +15,7 @@
  * form, with the areas and the refuted lines and no account, recorded at
  * version 2; and a run configured before keeps the first, at version 1.
  * The answer as
- * the evidence store freezes it reads as one `RecordedAnswer` whatever
+ * the evidence store freezes it reads as one `WriterAnswer` whatever
  * its version, which the form of the pull request renders beside the
  * ledger's own words.
  */
@@ -220,7 +220,7 @@ export interface RecordedFinding {
  * its version does not have it. `recordedAnswerOf` reads an answer of
  * any version into it, so the form has no branch by version.
  */
-export interface RecordedAnswer {
+export interface WriterAnswer {
   readonly core: Core | null;
   readonly conditions: readonly ConditionSentence[] | null;
   readonly summary: string | null;
@@ -245,7 +245,7 @@ export interface RecordedAnswer {
  * versions 1 to 3 did not hold, and the account of version 1 are not
  * taken.
  */
-export function recordedAnswerOf(recorded: Pick<ExplanationRecorded, 'answer' | 'version'>, evidence: Pick<EvidenceStore, 'read'>, review: Pick<ReviewState, 'decisions'>): RecordedAnswer | null {
+export function recordedAnswerOf(recorded: Pick<ExplanationRecorded, 'answer' | 'version'>, evidence: Pick<EvidenceStore, 'read'>, review: Pick<ReviewState, 'decisions'>): WriterAnswer | null {
   if (recorded.answer === null) return null;
   if (recorded.version === 4) return frozenAnswerV4Of(recorded, evidence);
   const frozen: unknown = JSON.parse(evidence.read(recorded.answer).toString('utf8'));

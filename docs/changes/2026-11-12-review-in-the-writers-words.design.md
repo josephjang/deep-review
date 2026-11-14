@@ -87,7 +87,7 @@ The parts of an answer of version 4 are `core`, `conditions`, `conclusion`, `are
 
 ### One shape for every version (R10, TD5)
 
-`recordedAnswerOf` reads a frozen answer of any version into one `RecordedAnswer`, as it does today, extended with the parts of version 4, each null when the answer has none. From an answer of version 3 it takes the core, the conditions, the areas, the refuted lines, the summary from `conclusion.why`, and for each finding its title, problem, cases, diagram, `checked` and `kind`, and its `action` from `conclusion.actions` when the finding is a fix; the sentence of a question, which the checks of version 3 did not hold, is not taken. From version 2 it takes the same without the core and the conditions, and from version 1 the findings and the summary. The form has no branch by version.
+`recordedAnswerOf` reads a frozen answer of any version into one `WriterAnswer`, the type that was `RecordedAnswer`, renamed so it is not taken for the person's recorded answer of `answer-state.ts`, as it does today, extended with the parts of version 4, each null when the answer has none. From an answer of version 3 it takes the core, the conditions, the areas, the refuted lines, the summary from `conclusion.why`, and for each finding its title, problem, cases, diagram, `checked` and `kind`, and its `action` from `conclusion.actions` when the finding is a fix; the sentence of a question, which the checks of version 3 did not hold, is not taken. From version 2 it takes the same without the core and the conditions, and from version 1 the findings and the summary. The form has no branch by version.
 
 ### The data forms (R1, R5, TD3)
 
