@@ -254,11 +254,13 @@ A review that is the only gate must say where it is not a gate. A review with pi
 
 ### Principle 11, recovery without a person
 
-Today a review that does not fit stops with no action that the person who ran it can take. The proposal removes that blocker. It departs from the principle's limit on recovery in two places that no run has shown: a comment over the limit (R7) and the floor (R5). The author decided that every run posts, and both are the smallest form that makes that true: two steps for a comment and one for the body.
+Today a review that does not fit stops with no action that the person who ran it can take. The proposal removes that blocker.
+
+The principle also does not permit a recovery path for a failure that no run has shown, and the one run that showed this failure reaches only the first rows of the order: by the estimate of the Summary it fits after row 3. Rows 4 to 9, the floor (R5) and the forms of a comment (R7) answer runs that have not happened. The proposal departs from the principle there, for two reasons. The author decided that every run posts, and without the later rows the next larger run would fall from row 3 straight to the floor and lose the core of the change with everything else. And the rows are not paths of their own: each is one more step of the same list, taken by the same loop, so a row adds a piece that can be left out and the notice that stands for it, and no new way to fail. PD9 applies the principle where it can: between the last row and the floor there are no smaller steps.
 
 ### Principle 12, a real run is the gate
 
-R11 is the gate: the run that showed the failure, a real post near the limit, and the review of this change.
+R11 is the gate: the run that showed the failure, a real post near the limit, and the review of this change. The gate reaches what real runs reach, which is rows 1 to 3 on the review of #135. Rows 4 to 9, the floor and the forms of a comment are held by tests on built runs alone, which the principle does not count as acceptance. The proposal says so here, and does not claim that the gate covers them.
 
 ### How to use this document
 
