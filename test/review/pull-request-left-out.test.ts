@@ -5,7 +5,8 @@ import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import type { Core, WriterAnswer } from '../../src/review/explanation.ts';
 import { publicationMarker } from '../../src/review/markers.ts';
 import type { PullRequestForm } from '../../src/review/pull-request-form.ts';
-import { filesWith, longFindingHistory, paddedAnswer, pullRequestRun as run, renderedOf, sampleBoundaries, stepsOf, writerAnswer, type WrittenFinding } from '../helpers/pull-request-review.ts';
+import { pullRequestWordTables } from '../../src/review/pull-request-words.ts';
+import { filesWith, longFindingHistory, paddedAnswer, pullRequestRun as run, renderedOf, sampleBoundaries, stepsOf, withSettings, writerAnswer, type WrittenFinding } from '../helpers/pull-request-review.ts';
 
 const includes = (text: string, part: string): void => assert.ok(text.includes(part), `${JSON.stringify(part)} in:\n${text}`);
 const excludes = (text: string, part: string): void => assert.ok(!text.includes(part), `no ${JSON.stringify(part)} in:\n${text}`);
@@ -201,3 +202,27 @@ function largeRun(count: number, length: number): RunState {
   const decisions = [...review.decisions!, ...ids.map((id, index) => (index % 3 === 2 ? { ...review.decisions![1]!, id, grounds: 'g'.repeat(length) } : { ...review.decisions![0]!, id, grounds: 'g'.repeat(length), fix: { approach: 'a'.repeat(length), rejected: [] } }))];
   return { ...state, review: { ...review, candidates, ranking, decisions } as RunState['review'] };
 }
+
+describe('what is left out, in the language the run recorded (R6, R10 of the review in the writer\'s words)', () => {
+  const korean = (history: ReturnType<typeof run>): RunState => withSettings(history, { 'review.language': 'ko' }, { 'review.language': 'repository' }).fold();
+
+  it('takes the notice under the heading, the record\'s place, the floor and the facts form of a comment from the Korean table', () => {
+    const answer = (pad: number): WriterAnswer => {
+      const said = writerAnswer();
+      const fix = said.findings[0] as WrittenFinding;
+      return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }, said.findings[1]!] };
+    };
+    const ko = pullRequestWordTables.ko;
+    const floor = renderedOf(korean(run()), answer(70_000), noLine);
+    assert.equal(stepsOf(floor).at(-1), 'floor');
+    includes(floor.body, ko.floorNotice);
+    includes(floor.body, `${ko.waitingLabels.questions}: 1.`);
+    const comment = renderedOf(korean(run()), answer(70_000), filesWith());
+    includes(comment.comments[0]!.body, ko.commentFactsNotice);
+    includes(comment.body, `${ko.leftOutLabels.commentTexts}: 1.`);
+    includes(comment.body, ko.leftOutNotice);
+    for (const text of [floor.body, comment.body, comment.comments[0]!.body]) {
+      for (const entry of [pullRequestWordTables.en.floorNotice, pullRequestWordTables.en.leftOutNotice, pullRequestWordTables.en.commentFactsNotice, pullRequestWordTables.en.printCommandLabel, pullRequestWordTables.en.reportCommandLabel]) excludes(text, entry);
+    }
+  });
+});
