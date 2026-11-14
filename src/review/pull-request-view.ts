@@ -313,7 +313,7 @@ export function formViewOf(input: PullRequestFormInput): FormView {
       return { candidate, claim: line?.claim ?? null, why: line?.why ?? null };
     }),
     counts: reviewCountsOf(review),
-    // The summary names the areas, so it is not shown when the checks dropped them: the merge of an answer of version 4 keeps the two from one answer, and an older one could keep the summary and drop its areas.
+    // The summary names the areas, so it is not shown when the checks dropped them: a merge of any version takes the summary from the first answer that passed it when no answer passed the areas, and so can keep the summary and drop its areas.
     summary: recorded?.dropped.some((part) => part.part === 'areas') ?? false ? null : answer?.summary ?? null,
     notExamined: answer?.notExamined ?? null,
     recorded,
