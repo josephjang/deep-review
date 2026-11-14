@@ -77,7 +77,7 @@ export function fitOrder(view: FormView): FitStep[];
 | 9 | `left` for each finding left as is that waits on a person |
 | 10 | `floor` |
 
-Within a row that names each finding, the steps go from the highest number of a finding down, which is the last-ranked first (TD2). A finding waits on a person when one of three holds, each read from what the view already has: its question has no answer with an option; its departure has no review; or `choicesShown` of its choices and its settled choices gives one with no settlement, which is a choice a verifier named and the decision did not settle. `keptByCut` goes away.
+Within a row that names each finding, the steps go from the highest number of a finding down, which is the last-ranked first (TD2). A finding waits on a person when one of three holds, each read from what the view already has: its question has no answer with an option; its departure has no review; or, for a decision of `fix` or `leave`, `choicesShown` of its choices and its settled choices gives one with no settlement, which is a choice a verifier named and the decision did not settle. A question settles no choice by rule, so the choices of its verifiers do not make it wait once it is answered. `keptByCut` goes away.
 
 `fitOrder` gives a `record` step only for a finding whose block holds the fold of a record: a finding with a decision, and, for one left as is, with the writer's text of it. A finding left as is with no writer's text shows its choices in view with no fold, and a finding with no decision shows nothing. Neither has a record to take, and what such a finding shows leaves with it at `left`. The Codex run of the gate of #135, whose writer failed, held 11 findings of the first kind.
 
@@ -95,11 +95,11 @@ A link to a finding that the body no longer holds would point at no anchor. `hre
 
 `headingSection` gains the notice of R6 when any step was taken or any comment lost a piece: a fixed notice that the review does not hold all of the run, that the report of the run prints each finding with its evidence and its decision in the words of the workers, and that a text of the writer that is not here is in the writer's answer on the machine that holds the run, which no command prints; then one facts line with each kind of piece left out and its count, and the command `deep-review report --run <id>`. It is a fixed notice and data, so code writes no sentence of the run, as [R1 of the review in the writer's words](2026-11-12-review-in-the-writers-words.requirements.md#r1-code-writes-no-sentence-of-the-run) asks.
 
-`trustSection` asks `postsWriterText` whether the review posts any text of the writer. That function reads what is left out in place of the cuts, so the notice that a model wrote the sentences is absent from a floor, which posts none.
+`trustSection` asks `postsWriterText` whether the review posts any text of the writer. That function reads what is left out in place of the cuts, and the findings on their lines as today, so the notice that a model wrote the sentences stands in a floor only when a comment posted with it holds a text of the writer.
 
 ### Fitting the body (R1, R2)
 
-`pullRequestForm` renders the body with nothing left out. While the body is over `maxPostedLength` and a step remains, it takes the next step of `fitOrder` and renders the body again with that prefix. It stops at the first body that fits. So what is left out is a prefix of the order, and the body that is posted is the first of the sequence that fits, which is what R2 states and what a test can read from the result alone. The notice under the heading is part of each render, so its size is counted.
+`pullRequestForm` renders the body with nothing left out. While the body is over `maxPostedLength` and a step remains, it takes the next step of `fitOrder` and renders the body again with that prefix. It stops at the first body that fits. So what is left out is a prefix of the order, and the body that is posted is the first of the sequence that fits, which is what R2 states and what a test can read from the result alone. The notice under the heading is part of each render, so its size is counted. The comments are fitted before the body, so the notice counts those that lost a piece.
 
 A step is taken even when it shortens the body by little, and the loop does not depend on a step shortening it: it goes on to the next step either way. No step adds a line where no piece stood, since `fitOrder` names a piece only where the run has one.
 
@@ -127,7 +127,7 @@ The recorded places do not change: a finding that the body no longer lists keeps
 
 ### The README (R10)
 
-The paragraph of "A body or a comment stays under 60,000 characters" is written again: every review is posted, the order in which a review that is too long loses its pieces, the floor, what a comment loses, and where the reader finds what was left out.
+The paragraph of "A body or a comment stays under 60,000 characters" and the sentence of the paragraph before it that says what a dry run prints of the cuts are written again: every review is posted, the order in which a review that is too long loses its pieces, the floor, what a comment loses, and where the reader finds what was left out.
 
 ### Where the code goes
 
@@ -171,17 +171,17 @@ Each render cleans every text of the body again. The implementation measures the
 
 ### OQ2: How is the recorded run of #135 rendered for the gate?
 
-`publish --dry-run` refuses a pull request that is merged, as #135 now is. The gate of R11 needs the form of that recorded run all the same. The implementation says how: by a script the author keeps outside the repository, which gives `pullRequestForm` the recorded run and the files GitHub still lists for the pull request, or by a replay beside the two the repository has.
+`publish --dry-run` refuses a pull request that is merged, as #135 now is. The gate of R11 needs the form of that recorded run all the same. The implementation says how: by a script the author keeps outside the repository, which gives `pullRequestForm` the recorded run and the files GitHub still lists for the pull request, or by a replay beside those the repository has.
 
 ## Test Strategy
 
 ### R1 and R5: Every run posts
 
-The tests that today expect a refusal of a body and of a comment expect a review. A test renders a run far larger than any on record, thousands of findings with long texts in the body, and expects the floor, under the limit. A test of `floorBody` alone expects no text of a worker in it, and the marker of the publication as its last line.
+The tests that today expect a refusal of a body and of a comment expect a review. A test renders a run far larger than any on record, 2,000 findings with long texts in the body, which is the most a publication records, and expects the floor, under the limit, with each comment of the run beside it. A test of `floorBody` alone expects no text of a worker in it, and the marker of the publication as its last line.
 
 ### R2, R3 and R4: The order
 
-Tests of `fitOrder` read the list for runs built to hold each kind of piece: the rows in the order of R2, the findings of a row from the highest number down, the records of the findings left as is before those of the fixes, and each finding that waits on a person, by a question, by a departure and by a choice no one settled, in rows 8 and 9 only. Tests of the form pad a run step by step, as the tests of the cuts do today, and expect at each size the prefix of the order that R2 gives and a body under the limit.
+Tests of `fitOrder` read the list for runs built to hold each kind of piece: the rows in the order of R2, the findings of a row from the highest number down, the records of the findings left as is before those of the fixes, and each finding that waits on a person, by a question, by a departure and by a choice no one settled, in rows 8 and 9 only. A finding left as is whose verifier named a choice that the decision settled is in rows 2 and 4, which is the rule this change replaces: a test that `keptByCut` under another name would fail. A fix on a `PLAUSIBLE` verdict that lost its text is still named among the reasons to look. Tests of the form pad a run step by step, as the tests of the cuts do today, and expect at each size the prefix of the order that R2 gives and a body under the limit.
 
 ### R6: The notices
 
