@@ -120,8 +120,8 @@ The order follows what a text is worth to the reader, which is what the reader l
 | 3 | The refuted candidates | Their count and a notice | Nothing acts on them, and a verifier refuted each |
 | 4 | Each finding left as is | Their count as not listed | The finding is verified, and nothing in the code changes for it |
 | 5 | The diagrams of the areas and of the core of the change | A notice | Each helps to read a text that stays |
-| 6 | The text in full of each fix with no line in the diff | The line of the finding and the command that prints it | The line still says what deep-review would do |
-| 7 | The line of each such finding | Their count as not listed | The counts of the summary still hold the finding, and a major one keeps its line in its area |
+| 6 | The text in full of each fix with no line in the diff | The line of the finding, which a major one already has in its area, and the command that prints it | The line still says what deep-review would do |
+| 7 | The line of each such minor finding | Their count as not listed | The counts of the summary still hold the finding; a major finding keeps its line in its area until the floor |
 | 8 | The record of the decision of each finding that waits on a person | As row 2 | The question, the departure or the choice that no one settled stays in view; the record is the decider's words behind it |
 | 9 | Each finding left as is that waits on a person | Their count as not listed | Its choice is one that no one settled, on a finding that changes nothing in the code |
 | 10 | Everything but the floor | The floor (R5) | Nothing less fits |

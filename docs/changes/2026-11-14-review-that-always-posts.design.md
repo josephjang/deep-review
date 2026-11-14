@@ -72,7 +72,7 @@ export function fitOrder(view: FormView): FitStep[];
 | 4 | `left` for each finding left as is that waits on no one |
 | 5 | `diagrams` |
 | 6 | `text` for each finding in full that waits on no one |
-| 7 | `line` for each of the same findings |
+| 7 | `line` for each of the same findings that is minor |
 | 8 | `record` for each finding of the body that waits on a person |
 | 9 | `left` for each finding left as is that waits on a person |
 | 10 | `floor` |
@@ -89,7 +89,7 @@ The minor findings, what the review did not examine and the areas render as with
 
 `recordBlocks` takes whether the record is left out. It then leaves the decider's recorded words and their notice out of the fold, and puts one facts line after it: a label that says the decision as recorded is not here, and the command `deep-review report --run <id> --finding <n>` as code, which prints that decision from the ledger (`decisionBlockLines` in `src/review/decision-report.ts`). The fold of a fix keeps the writer's text of the fix in full, under a summary that names it, since the summary "The decision as deep-review recorded it" is no longer true of it. A fold with no writer's text, that of a finding left as is or of a question, is left out whole, and the line stands in its place. Each choice that no settled choice answers is rendered in view after that line, as `choiceRecord` gives it today, labeled as the verifier's with the statement that deep-review did not settle it. So the record of a finding that waits by such a choice leaves without the choice (R4).
 
-`inFullSection` renders a finding at `text` as a list item: its anchor, its line as `findingLine` gives it, and the command that prints it. It leaves a finding at `line` out, and ends with the count of those, under the label "Not listed here" and a notice. `leftSection` leaves a finding at `left` out and counts it in the same way, as today's cut does for the findings it does not keep.
+`inFullSection` renders the blocks of the findings in full first, as today, each under its heading. After the last block, under a label of its own, one list holds an item for each minor finding at `text`: its anchor, its line as `findingLine` gives it, and the command that prints it. The list stands apart from the blocks, so no item falls under the heading of another finding or joins the list of cited cases that ends a major finding's block. A major finding at `text` gets no item: its area already holds its line, and a second one would repeat it. So the `line` step exists for minor findings only, and a major finding keeps its line in its area until the floor. After the list the section gives the count of the findings at `line`, under the label "Not listed here", with a notice. `leftSection` leaves a finding at `left` out and counts it in the same way, as today's cut does for the findings it does not keep.
 
 A link to a finding that the body no longer holds would point at no anchor. `hrefOf` returns none for such a finding, and `findingRef` then shows the label and the number as text.
 
@@ -123,7 +123,7 @@ The recorded places do not change: a finding that the body no longer lists keeps
 
 ### The table of words
 
-`PullRequestWords` gains, in English and in Korean, the fixed notice of R6 and its form for the floor, the labels of the kinds of piece left out, the label and the notice of a record that is not here, the summary of a fold that holds the writer's text of the fix alone, the label and the notice of a text that did not fit and of a comment in its facts form, and the label of the command that prints. `leftCut` changes its words, since the findings it stands for are no longer those whose verifiers named no choice. Each entry is a string, as the table's type asks.
+`PullRequestWords` gains, in English and in Korean, the fixed notice of R6 and its form for the floor, the labels of the kinds of piece left out, the label and the notice of a record that is not here, the summary of a fold that holds the writer's text of the fix alone, the label of the list of findings whose text did not fit and the notice of those that are not listed, the notice of a comment in its facts form, and the label of the command that prints. `leftCut` changes its words, since the findings it stands for are no longer those whose verifiers named no choice. Each entry is a string, as the table's type asks.
 
 ### The README (R10)
 
