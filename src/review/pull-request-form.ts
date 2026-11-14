@@ -712,11 +712,13 @@ function floorBody(view: Page): string {
 
 /**
  * The core of the change (R1 to R4, R10, R11 of the core of the change on
- * the pull request), never cut: the writer's title, what the change does,
- * why, the sources of the reason as links, its diagram, and whose reading
- * it is; or the triage's title, account and reason as its recorded words,
- * with the sources, and that it is the triage's; or that the run has no
- * account, and why.
+ * the pull request): the writer's title, what the change does, why, the
+ * sources of the reason as links, its diagram, and whose reading it is;
+ * or the triage's title, account and reason as its recorded words, with
+ * the sources, and that it is the triage's; or that the run has no
+ * account, and why. Its text leaves only with the floor, and its diagram
+ * with the step that leaves out the diagrams, where a notice of its own
+ * stands in its place (R2 row 5 of the review that always posts).
  */
 function coreSection(view: Page, say: Speaker): Section {
   const { words, core } = view;
