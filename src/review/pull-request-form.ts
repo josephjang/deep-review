@@ -38,7 +38,7 @@ import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, withoutSecrets, type MachineContext } from './public-text.ts';
 import { firstFit, fitOrder, leftOutOf, nothingLeftOut, takes, unsettledChoices, type FitStep, type LeftOut } from './pull-request-fit.ts';
 import type { DecisionValue, LeftOutKind, LineNote, PullRequestWords, RecordedSpeaker, WholePiece, WriterPart } from './pull-request-words.ts';
-import { acts, formViewOf, inFull, isMinor, leftAsIs, majorActing, minorActing, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
+import { acts, formViewOf, inFull, isMinor, leftAsIs, majorActing, minorActing, openDeparture, openQuestion, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
 import { shortRunId } from './runs.ts';
 import { choicesShown } from './state.ts';
 import { changeConditions, type ChangeConditionName, type FindingPlace, type PlaceReason } from './vocabulary.ts';
@@ -454,8 +454,7 @@ function questionBlocks(view: FormView, finding: FindingView, say: Speaker): str
   const labels = [columns.number, ...(ask === null ? [words.recorded.decider] : [columns.means]), columns.cost, columns.rule, columns.edits];
   const recommendation = ask === null ? [] : [[`${words.recommendationLabel} ${sentenceText(say.prose(ask.recommendation))}`]];
   const command = factsLine([[words.commandLabel, codeSpan(answerCommand(view.state.id, finding.finding.number, '--option <k>'))]]);
-  const answered = question.answer !== null && question.answer.option !== null;
-  return [[`${words.questionLabel} ${asked}`], factsTable(labels, rows), [factsLine(questionFacts(view, finding))], ...recommendation, ...(answered ? [] : [[`${words.answerNotices[view.fixPass]} ${command}`]])];
+  return [[`${words.questionLabel} ${asked}`], factsTable(labels, rows), [factsLine(questionFacts(view, finding))], ...recommendation, ...(openQuestion(finding) ? [[`${words.answerNotices[view.fixPass]} ${command}`]] : [])];
 }
 
 /**
@@ -688,8 +687,8 @@ function commentCounts(view: Page): (readonly [string, string])[] {
 function floorBody(view: Page): string {
   const { words } = view;
   const notice = `${words.floorNotice} ${factsLine([...commentCounts(view), [words.reportCommandLabel, codeSpan(reportCommand(view, '<n>'))]])}`;
-  const questions = view.findings.filter((finding) => finding.question !== null && (finding.question.answer === null || finding.question.answer.option === null)).length;
-  const departures = view.findings.filter((finding) => finding.departure !== null && finding.departure.review === null).length;
+  const questions = view.findings.filter(openQuestion).length;
+  const departures = view.findings.filter(openDeparture).length;
   const choices = view.findings.reduce((sum, finding) => sum + unsettledChoices(finding), 0);
   const waiting = factsLine([[words.waitingLabels.questions, String(questions)], [words.waitingLabels.departures, String(departures)], [words.waitingLabels.choices, String(choices)]]);
   const plausible = view.findings.filter((finding) => finding.decision?.decision === 'fix' && finding.finding.verdict === 'PLAUSIBLE').length;
@@ -847,7 +846,7 @@ function needsSection(view: Page, say: Speaker): Section {
   });
   const items = [...questions, ...departures];
   const looks = reasonsToLook(view, say);
-  const open = view.findings.some((finding) => (finding.question !== null && (finding.question.answer === null || finding.question.answer.option === null)) || (finding.departure !== null && finding.departure.review === null));
+  const open = view.findings.some((finding) => openQuestion(finding) || openDeparture(finding));
   const answer = items.length === 0 || !open ? [] : [answerLine(view, questions.length > 0, departures.length > 0)];
   const none = items.length === 0 ? [[factsLine([[words.questionsLabel, words.none], [words.departuresLabel, words.none], ...(looks.length > 0 ? [] : [[words.conditionsLabel, view.brief.change.state === 'given' ? words.none : words.notJudged] as const])])]] : [];
   return { lines: blocks([words.needsHeading], ...none, items, ...answer, ...(looks.length === 0 ? [] : [[words.looksNotice], looks])) };
