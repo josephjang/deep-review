@@ -222,7 +222,7 @@ export interface PullRequestWords {
   readonly leftCut: string;
 
   readonly trustHeading: string;
-  readonly verdictColumns: Readonly<Record<'verdict' | 'findings' | 'major' | 'unverified', string>>;
+  readonly verdictColumns: Readonly<Record<'verdict' | 'findings' | 'major' | 'majorRan' | 'unverified', string>>;
   readonly basisColumns: Readonly<Record<'basis' | 'findings', string>>;
   readonly noBasisValue: string;
   readonly modelNotice: string;
@@ -528,7 +528,7 @@ const english: PullRequestWords = {
   leftCut: 'To fit the length GitHub takes, the findings left as is whose verifiers named no choice for the author are not listed here; the report of the run holds each.',
 
   trustHeading: '### How far to trust this review',
-  verdictColumns: { verdict: 'Verdict', findings: 'Findings', major: 'Of them major', unverified: 'Of them unverified' },
+  verdictColumns: { verdict: 'Verdict', findings: 'Findings', major: 'Of them major', majorRan: 'Of the major, reproduced by running', unverified: 'Of them unverified' },
   basisColumns: { basis: 'Checked by', findings: 'Findings' },
   noBasisValue: 'no basis on record',
   modelNotice: 'A model wrote the sentences of this review from the verifiers\' evidence, which the report of the run holds, and from deep-review\'s decisions; only that evidence was verified. Every count, verdict, severity, status, link and command is deep-review\'s own record.',
@@ -805,7 +805,7 @@ const korean: PullRequestWords = {
   leftCut: 'GitHub가 받는 길이에 맞추느라, 검증자가 작성자에게 남긴 선택이 없는 그대로 둔 지적 사항은 여기에 적지 않았습니다. 실행 보고서에 모두 있습니다.',
 
   trustHeading: '### 이 리뷰를 얼마나 믿을 수 있나',
-  verdictColumns: { verdict: '판정', findings: '지적 사항', major: '그중 major', unverified: '그중 검증 안 됨' },
+  verdictColumns: { verdict: '판정', findings: '지적 사항', major: '그중 major', majorRan: 'major 중 실행해 재현함', unverified: '그중 검증 안 됨' },
   basisColumns: { basis: '확인 방법', findings: '지적 사항' },
   noBasisValue: '기록된 확인 방법 없음',
   modelNotice: '이 리뷰의 문장은 모델이 검증자의 근거와 deep-review의 결정을 바탕으로 썼으며, 그 근거는 실행 보고서에 있습니다. 검증된 것은 그 근거뿐입니다. 모든 수, 판정, 심각도, 상태, 링크와 명령은 deep-review 자신의 기록입니다.',
