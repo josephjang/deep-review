@@ -113,6 +113,13 @@ describe('the coverage the floor states', () => {
     includes(held, '- **It changes a public interface.**');
   });
 
+  it('gives the fixed notice that nothing waits on the reasons to look and no command answers them, after the answer command and before a held condition', () => {
+    const notice = 'A person should also look at the change for these reasons. Nothing waits on them, and no command answers them.';
+    const held = sectionOf(floorOf(withConditions(run().fold(), true)), '### What needs a person');
+    includes(held, `\`--reject\`.\n\n${notice}\n\n- **It changes a public interface.**`);
+    excludes(sectionOf(floorOf(withConditions(run().fold(), false)), '### What needs a person'), notice);
+  });
+
   it('says first in what the review did not examine that no check ran, or that the fix pass runs the checks, before the kinds of gap', () => {
     const readOnly = sectionOf(floorOf(run().fold()), '### What this review did not examine');
     includes(readOnly, '### What this review did not examine\n\n- Checks run in this review: none.\n- A review pass that did not run\n- Findings no verifier examined');
