@@ -112,4 +112,12 @@ describe('the coverage the floor states', () => {
     excludes(held, 'Reasons to look:');
     includes(held, '- **It changes a public interface.**');
   });
+
+  it('says first in what the review did not examine that no check ran, or that the fix pass runs the checks, before the kinds of gap', () => {
+    const readOnly = sectionOf(floorOf(run().fold()), '### What this review did not examine');
+    includes(readOnly, '### What this review did not examine\n\n- Checks run in this review: none.\n- A review pass that did not run\n- Findings no verifier examined');
+    const continued = sectionOf(floorOf(run().fold(), 'continued'), '### What this review did not examine');
+    includes(continued, '### What this review did not examine\n\n- No check ran in this review. The fix pass that followed runs the repository\'s checks');
+    excludes(continued, 'Checks run in this review: none.');
+  });
 });
