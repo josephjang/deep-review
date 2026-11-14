@@ -34,6 +34,7 @@ import { findingMarker, markerLine, publicationMarker } from './markers.ts';
 import { answerArguments, answerCommand } from './needs.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, withoutSecrets, type MachineContext } from './public-text.ts';
+import { leftOutOf, nothingLeftOut, takes, type FitStep, type LeftOut } from './pull-request-fit.ts';
 import type { DecisionValue, LineNote, PullRequestWords, RecordedSpeaker, WriterPart } from './pull-request-words.ts';
 import { acts, formViewOf, inFull, isMinor, leftAsIs, majorActing, minorActing, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
 import { shortRunId } from './runs.ts';
@@ -547,6 +548,11 @@ function commentOf(view: FormView, finding: FindingView & { readonly placement: 
   return { comment: { finding: finding.finding.id, path: location.path, line: location.line, body }, secrets: say.secrets() };
 }
 
+/** The view as the body renders it with a prefix of the order left out (`leftOutOf`). */
+interface Page extends FormView {
+  readonly leftOut: LeftOut;
+}
+
 /** One section of the body, by the name a refusal gives its size with. */
 interface Section {
   readonly part: string;
@@ -724,11 +730,11 @@ function gapFacts(view: FormView, gap: GapFacts, say: Speaker): string {
  * its place, the writer's claim and reason or the finder's summary as its
  * recorded words, or, cut, the notice in their place.
  */
-function notExaminedSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
+function notExaminedSection(view: Page, say: Speaker): Section {
   const { words } = view;
   const gaps = view.brief.notExamined.map((gap) => gap.facts);
   const checks = view.fixPass === 'continued' ? words.noCheckContinued : factsLine([[words.checksRunLabel, words.none]]);
-  const cut = cuts.has('refuted');
+  const cut = view.leftOut.refuted;
   const count = view.refuted.length;
   const refutedLine = count === 0 ? [] : [cut ? `${factsLine([[words.refutedLabel, String(count)], [words.notListedLabel, String(count)]])} ${words.refutedCut}` : factsLine([[words.refutedLabel, String(count)]])];
   const items = [checks, ...(gaps.length === 0 ? [factsLine([[words.gapsLabel, words.none]])] : gaps.map((gap) => gapFacts(view, gap, say))), ...refutedLine].map((line) => `- ${line}`);
@@ -787,10 +793,10 @@ function findingLine(view: FormView, finding: FindingView, say: Speaker): string
 }
 
 /** The major findings by area (R4): each area's title, intro and diagram, less what a cut takes, and one line for each of its findings. */
-function areasSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
+function areasSection(view: Page, say: Speaker): Section {
   const { words } = view;
   if (majorActing(view).length === 0) return { part: 'areas', lines: [words.areasHeading, '', words.noMajor] };
-  const diagrams = !cuts.has('area-diagrams');
+  const diagrams = !view.leftOut.diagrams;
   // Once, since each call cleans the writer's titles and intros, and counts their secrets, again.
   const given = areasOf(view, say);
   const areas = given.flatMap((area) => {
@@ -825,7 +831,7 @@ function inFullSection(view: FormView, say: Speaker): Section {
 const keptByCut = (finding: FindingView): boolean => finding.choices.some((candidate) => candidate.choice !== null);
 
 /** The minor findings (R13): their counts as facts, those whose reach is not given only when there are any, those that need a person, then their table folded, or, cut, the notice in its place. */
-function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
+function minorSection(view: Page, say: Speaker): Section {
   const { words } = view;
   const minor = minorActing(view);
   if (minor.length === 0) return { part: 'minor', lines: [] };
@@ -836,7 +842,7 @@ function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>):
   const needing = minor.filter((finding) => finding.question !== null || finding.departure !== null).map((finding) => finding.finding.number);
   const labels = words.minorLabels;
   const counts = factsLine([[labels.total, String(minor.length)], [labels.user, String(user)], [labels.code, String(code)], ...(none === 0 ? [] : [[labels.none, String(none)] as const]), [labels.onLine, String(minor.filter((finding) => finding.placement.place === 'line').length)], ...(needing.length === 0 ? [] : [[labels.needs, findingRefs(view, needing)] as const])]);
-  if (cuts.has('minor-table')) return { part: 'minor', lines: blocks([words.minorHeading], [counts], [words.minorCut]) };
+  if (view.leftOut.minorTable) return { part: 'minor', lines: blocks([words.minorHeading], [counts], [words.minorCut]) };
   const columns = words.minorColumns;
   const rows = minor.map((finding) => {
     const action = actionText(view, finding, say);
@@ -858,11 +864,11 @@ function minorSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>):
  * the decision as recorded. Cut, those whose verifier named a choice and
  * the notice in place of the others.
  */
-function leftSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): Section {
+function leftSection(view: Page, say: Speaker): Section {
   const { words } = view;
   const left = leftAsIs(view);
   if (left.length === 0) return { part: 'left as is', lines: [] };
-  const shown = cuts.has('left') ? left.filter(keptByCut) : left;
+  const shown = left.filter((finding) => !takes(view.leftOut, finding.finding.id, 'left'));
   const others = left.length - shown.length;
   const cutNotice = others === 0 ? [] : [`${factsLine([[words.notListedLabel, String(others)]])} ${words.leftCut}`];
   if (shown.length === 0) return { part: 'left as is', lines: blocks([words.leftHeading], cutNotice) };
@@ -924,22 +930,22 @@ function missingParts(view: FormView): string[] {
 }
 
 /**
- * Whether the body with the cuts given, or a comment, posts any text of
+ * Whether the body with what is left out, or a comment, posts any text of
  * the writer (R7 of the review in the writer's words): the core, a
  * sentence on a condition, the summary, the areas when a major finding
  * acts, what the review did not examine, a refuted line or a finding left
- * as is the cuts keep, or a finding's text. A frozen answer can post
+ * as is still listed, or a finding's text. A frozen answer can post
  * none: a writer that completed its unit has its answer frozen even when
  * the checks dropped every part.
  */
-function postsWriterText(view: FormView, cuts: ReadonlySet<BodyCut>): boolean {
+function postsWriterText(view: Page): boolean {
   return view.core.kind === 'writer'
     || heldConditionsOf(view).some((entry) => writerConditionOf(view, entry.condition) !== null)
     || view.summary !== null
     || view.notExamined !== null
     || (view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0)
-    || (!cuts.has('refuted') && view.refuted.some((line) => line.claim !== null || line.why !== null))
-    || leftAsIs(view).some((finding) => finding.left !== null && (!cuts.has('left') || keptByCut(finding)))
+    || (!view.leftOut.refuted && view.refuted.some((line) => line.claim !== null || line.why !== null))
+    || leftAsIs(view).some((finding) => finding.left !== null && !takes(view.leftOut, finding.finding.id, 'left'))
     || view.findings.some((finding) => acts(finding) && (finding.written !== null || (finding.explained.kind === 'unexplained' && finding.explained.reason !== null)));
 }
 
@@ -953,7 +959,7 @@ function postsWriterText(view: FormView, cuts: ReadonlySet<BodyCut>): boolean {
  * parts of the writer's answer the review lacks; and the findings
  * answered after the writer wrote.
  */
-function trustSection(view: FormView, cuts: ReadonlySet<BodyCut>): Section {
+function trustSection(view: Page): Section {
   const { words, counts } = view;
   const columns = words.verdictColumns;
   const unverified = counts.unverified === 0 ? [] : [columns.unverified];
@@ -965,7 +971,7 @@ function trustSection(view: FormView, cuts: ReadonlySet<BodyCut>): Section {
   const basisTable = counts.findings === 0 ? [] : factsTable([words.basisColumns.basis, words.basisColumns.findings], [...bases, ...(counts.noBasis === 0 ? [] : [[words.noBasisValue, String(counts.noBasis)]])]);
   const candidates = factsLine([[words.counts.candidates, String(counts.candidates)], [words.counts.refuted, String(counts.refuted)]]);
   const notes: string[][] = [];
-  if (postsWriterText(view, cuts)) notes.push([words.modelNotice]);
+  if (postsWriterText(view)) notes.push([words.modelNotice]);
   if (view.recorded === null) notes.push([words.noExplanation]);
   const missing = missingParts(view);
   if (missing.length > 0) notes.push([factsLine([[words.missingLabel, valueList(missing)]])]);
@@ -998,42 +1004,43 @@ function lastSection(view: FormView, say: Speaker): Section {
 }
 
 /**
- * The body with the cuts given, and the secrets its cleaning replaced: the
+ * The body with what `leftOut` names left out, and the secrets its cleaning replaced: the
  * heading, the core of the change, the summary, what needs a person, what
  * the review did not examine, how the review worked, the major findings by
  * area, the findings in full, the minor findings, the findings left as is,
  * how far to trust the review and the last line.
  */
-function renderBody(view: FormView, cuts: ReadonlySet<BodyCut>): { readonly sections: readonly Section[]; readonly text: string; readonly secrets: number } {
+function renderBody(view: FormView, leftOut: LeftOut): { readonly sections: readonly Section[]; readonly text: string; readonly secrets: number } {
   const say = speakerOf(view.input.machine, view.words, view.names);
+  const page: Page = { ...view, leftOut };
   const sections = [
-    headingSection(view),
-    coreSection(view, say),
-    summarySection(view, say),
-    needsSection(view, say),
-    notExaminedSection(view, say, cuts),
-    howSection(view),
-    areasSection(view, say, cuts),
-    inFullSection(view, say),
-    minorSection(view, say, cuts),
-    leftSection(view, say, cuts),
-    trustSection(view, cuts),
-    lastSection(view, say),
+    headingSection(page),
+    coreSection(page, say),
+    summarySection(page, say),
+    needsSection(page, say),
+    notExaminedSection(page, say),
+    howSection(page),
+    areasSection(page, say),
+    inFullSection(page, say),
+    minorSection(page, say),
+    leftSection(page, say),
+    trustSection(page),
+    lastSection(page, say),
   ].filter((section) => section.lines.length > 0);
   return { sections, text: sections.map((section) => section.lines.join('\n')).join('\n\n'), secrets: say.secrets() };
 }
 
-/** Whether a cut takes anything from this run's body, so a cut that changes nothing is neither made nor named. */
-function cutApplies(view: FormView, cut: BodyCut): boolean {
+/** The steps of a cut of this run's body, none for a cut that takes nothing from it, so a cut that changes nothing is neither made nor named. */
+function cutSteps(view: FormView, cut: BodyCut): FitStep[] {
   switch (cut) {
     case 'refuted':
-      return view.refuted.length > 0;
+      return view.refuted.length > 0 ? [{ piece: 'refuted' }] : [];
     case 'left':
-      return leftAsIs(view).some((finding) => !keptByCut(finding));
+      return leftAsIs(view).filter((finding) => !keptByCut(finding)).map((finding) => ({ piece: 'left', finding: finding.finding.id }));
     case 'minor-table':
-      return minorActing(view).length > 0;
+      return minorActing(view).length > 0 ? [{ piece: 'minor-table' }] : [];
     case 'area-diagrams':
-      return majorActing(view).length > 0 && view.areas !== null && view.areas.some((area) => area.diagram !== null);
+      return majorActing(view).length > 0 && view.areas !== null && view.areas.some((area) => area.diagram !== null) ? [{ piece: 'diagrams' }] : [];
   }
 }
 
@@ -1058,12 +1065,12 @@ export function pullRequestForm(input: PullRequestFormInput): PullRequestForm | 
     comments.push(rendered.comment);
     secrets += rendered.secrets;
   }
-  const applicable = bodyCuts.filter((cut) => cutApplies(view, cut));
-  let body = renderBody(view, new Set());
+  const applicable = bodyCuts.map((cut) => ({ cut, steps: cutSteps(view, cut) })).filter((entry) => entry.steps.length > 0);
+  let body = renderBody(view, nothingLeftOut);
   let made = 0;
   while (body.text.length > maxPostedLength && made < applicable.length) {
     made += 1;
-    body = renderBody(view, new Set(applicable.slice(0, made)));
+    body = renderBody(view, leftOutOf(applicable.slice(0, made).flatMap((entry) => entry.steps)));
   }
   if (body.text.length > maxPostedLength) {
     return { kind: 'refused', text: { kind: 'body' }, size: body.text.length, limit: maxPostedLength, parts: body.sections.map((section) => ({ part: section.part, size: section.lines.join('\n').length })) };
@@ -1074,6 +1081,6 @@ export function pullRequestForm(input: PullRequestFormInput): PullRequestForm | 
     comments,
     places: input.places.map(({ finding, place, reason }) => ({ finding, place, reason })),
     secrets: secrets + body.secrets,
-    cuts: applicable.slice(0, made),
+    cuts: applicable.slice(0, made).map((entry) => entry.cut),
   };
 }
