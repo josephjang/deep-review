@@ -144,35 +144,37 @@ export function formOf(...args: Parameters<typeof renderedOf>): PullRequestForm 
   return form as PullRequestForm;
 }
 
-export interface Boundary { below: PullRequestForm; at: PullRequestForm; above: PullRequestForm | FormRefusal }
+/** The steps the form left out of a body, each as `piece` or `piece:finding`, for expectations a reader can check against the order. */
+export const stepsOf = (form: PullRequestForm): string[] => form.leftOut.body.map((step) => ('finding' in step ? `${step.piece}:${step.finding}` : step.piece));
 
-/** Calibrate padding independently for this renderer against a fixed cap and literal expected cuts. */
-export function sampleBoundaries(render: (pad: number) => PullRequestForm | FormRefusal, limit: number, expectedCuts: readonly (readonly string[])[]): Boundary[] {
+export interface Boundary { below: PullRequestForm; at: PullRequestForm; above: PullRequestForm }
+
+/**
+ * Calibrate padding for this renderer against a fixed cap and literal
+ * expected states, each the steps left out as `stepsOf` gives them: for
+ * each state but the last, the padding at which the body is one character
+ * under the limit, at it, and one over, where the form leaves out more
+ * and reaches the next state.
+ */
+export function sampleBoundaries(render: (pad: number) => PullRequestForm | FormRefusal, limit: number, expected: readonly (readonly string[])[]): Boundary[] {
   let pad = 1;
   let seed = render(pad);
-  return expectedCuts.map((cuts, index) => {
-    assert.equal(seed.kind, 'rendered', `a successful seed for cut state ${String(index)}`);
+  return expected.slice(0, -1).map((steps, index) => {
+    assert.equal(seed.kind, 'rendered', `a successful seed for state ${String(index)}`);
     const atPad = pad + limit - (seed as PullRequestForm).body.length;
-    assert.ok(atPad > pad, 'each fixed cut state makes positive progress toward its limit');
+    assert.ok(atPad > pad, 'each fixed state makes positive progress toward its limit');
     assert.ok(atPad <= limit, 'padding stays within the fixed public cap');
     const below = render(atPad - 1);
     const at = render(atPad);
     const above = render(atPad + 1);
-    assert.equal(below.kind, 'rendered', JSON.stringify(below));
-    assert.equal(at.kind, 'rendered', JSON.stringify(at));
+    for (const form of [below, at, above]) assert.equal(form.kind, 'rendered', JSON.stringify(form));
     assert.equal((below as PullRequestForm).body.length, limit - 1);
     assert.equal((at as PullRequestForm).body.length, limit);
-    assert.deepEqual((below as PullRequestForm).cuts, cuts);
-    assert.deepEqual((at as PullRequestForm).cuts, cuts);
-    if (index + 1 < expectedCuts.length) {
-      assert.equal(above.kind, 'rendered');
-      assert.deepEqual((above as PullRequestForm).cuts, expectedCuts[index + 1]);
-    } else {
-      assert.equal(above.kind, 'refused');
-      assert.equal((above as FormRefusal).size, limit + 1);
-    }
+    assert.deepEqual(stepsOf(below as PullRequestForm), steps);
+    assert.deepEqual(stepsOf(at as PullRequestForm), steps);
+    assert.deepEqual(stepsOf(above as PullRequestForm), expected[index + 1]);
     pad = atPad + 1;
     seed = above;
-    return { below: below as PullRequestForm, at: at as PullRequestForm, above };
+    return { below: below as PullRequestForm, at: at as PullRequestForm, above: above as PullRequestForm };
   });
 }

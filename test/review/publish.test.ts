@@ -193,7 +193,7 @@ describe('publish', { timeout: 900_000, concurrency: sandboxConcurrency }, () =>
     assert.equal(outcome.kind, 'dry-run');
     const text = outcome.kind === 'dry-run' ? outcome.lines.join('\n') : '';
     const runId = box.run().id;
-    assert.ok(text.startsWith(`Dry run: run ${runId} would post one review to https://github.com/acme/widgets/pull/42, on its head ${commitsOf(box).head}; nothing is posted or recorded.\nWhere each finding goes:\n- 1 (SCAN-1): a comment on src/a.ts:2\n- 2 (SCAN-2): a comment on src/b.ts:1\n- 3 (SWEEP-1): in the body, left as is (src/a.ts:5)\nCut from the body to fit: nothing.\nSecrets replaced by the cleaning: 0.\n`), text);
+    assert.ok(text.startsWith(`Dry run: run ${runId} would post one review to https://github.com/acme/widgets/pull/42, on its head ${commitsOf(box).head}; nothing is posted or recorded.\nWhere each finding goes:\n- 1 (SCAN-1): a comment on src/a.ts:2\n- 2 (SCAN-2): a comment on src/b.ts:1\n- 3 (SWEEP-1): in the body, left as is (src/a.ts:5)\nLeft out of the body to fit: nothing.\nSecrets replaced by the cleaning: 0.\n`), text);
     assert.match(text, /^--- The body of the review, \d+ characters ---\n## deep-review's review of this pull request/m);
     assert.ok(text.includes(`<!-- ${publicationMarker(runId, 1)} -->\n--- The end of the body ---`), text);
     assert.match(text, /^--- The comment of finding 1 \(SCAN-1\) on src\/a\.ts:2, \d+ characters ---$/m);
