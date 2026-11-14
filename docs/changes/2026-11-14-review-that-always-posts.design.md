@@ -103,7 +103,7 @@ A step is taken even when it shortens the body by little. A record shorter than 
 
 ### The floor (R5)
 
-The step `floor` renders a body of its own, `floorBody`: the heading with the facts of what the run reviewed; the notice of R6 in its form for the floor, which says that the text of the review did not fit; the table of the findings by severity and by decision, with the fixed notice of what happens next; the counts of the questions and of the fixes against a written rule that wait on a person, with the command that answers one; each condition that holds, as its label; the tables of the verdicts and of how the findings were checked; and the last line with the engine, the run and the commits. It holds numbers, labels, fixed notices, commands, and ids of fixed length. It leaves out the version the runtime gave and the names of the models, which are strings that the form does not bound.
+The step `floor` renders a body of its own, `floorBody`, which holds the list of R5 and nothing else, with the notice of R6 in its form for the floor, which says that the text of the review did not fit. Its last line is the marker of the publication, as `lastSection` ends every body today: `settleOf` in `src/review/publish.ts` finds a stopped publication by that marker, so a floor without it could be posted twice. The floor holds numbers, labels, fixed notices, commands, and ids of fixed length. It leaves out the version the runtime gave and the names of the models, which are strings that the form does not bound.
 
 A floor over the limit is a defect of the form, not a property of a run, so `pullRequestForm` throws an `Error` for it and returns no refusal. A test renders the floor of a run far larger than any on record.
 
@@ -175,7 +175,7 @@ Each render cleans every text of the body again. The implementation measures the
 
 ### R1 and R5: Every run posts
 
-The tests that today expect a refusal of a body and of a comment expect a review. A test renders a run far larger than any on record, thousands of findings with long texts in the body, and expects the floor, under the limit. A test of `floorBody` alone expects no text of a worker in it.
+The tests that today expect a refusal of a body and of a comment expect a review. A test renders a run far larger than any on record, thousands of findings with long texts in the body, and expects the floor, under the limit. A test of `floorBody` alone expects no text of a worker in it, and the marker of the publication as its last line.
 
 ### R2, R3 and R4: The order
 
@@ -187,7 +187,7 @@ For each kind of piece left out, a test expects what stands in its place and the
 
 ### R7: A comment
 
-A test pads the record of a finding on its line and expects its comment without the record, then pads its text and expects the facts form, each under the limit, with the body and the other comments unchanged but for the count under the heading.
+A test pads the record of a finding on its line and expects its comment without the record, then pads its text and expects the facts form, each under the limit and each ending with the marker of its finding, with the body and the other comments unchanged but for the count under the heading.
 
 ### R8: A review that fits
 
