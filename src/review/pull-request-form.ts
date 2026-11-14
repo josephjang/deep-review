@@ -482,7 +482,7 @@ function recordBlocks(view: Page, finding: FindingView, say: Speaker): string[] 
   if (takes(view.leftOut, finding.finding.id, 'record')) {
     // The record leaves the fold, which keeps the writer's text of a fix alone; the command that prints the record and each choice no one settled stand after it (R2, R4, R6 of the review that always posts).
     const fold = writerText.length === 0 ? [] : details(words.fixTextSummary, ...writerText);
-    return blocks(fold, [`${words.recordLeftOut} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])}`], choiceRecord(view, finding, say, 'open'));
+    return blocks(fold, [`${words.recordLeftOut} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding.finding.number))]])}`], choiceRecord(view, finding, say, 'open'));
   }
   const recorded: string[] = [];
   if (decision.decision === 'fix') {
@@ -500,8 +500,8 @@ function recordBlocks(view: Page, finding: FindingView, say: Speaker): string[] 
   return details(words.recordSummary, notice, ...parts);
 }
 
-/** The command that prints a finding of the run from the ledger, with its evidence and its decision in the words of the workers that recorded them. */
-const reportCommand = (view: FormView, finding: FindingView): string => `deep-review report --run ${shortRunId(view.state.id)} --finding ${String(finding.finding.number)}`;
+/** The command that prints a finding of the run from the ledger, with its evidence and its decision in the words of the workers that recorded them: the finding's number, or `<n>` in its place. */
+const reportCommand = (view: FormView, finding: number | '<n>'): string => `deep-review report --run ${shortRunId(view.state.id)} --finding ${String(finding)}`;
 
 /** What deep-review would do about a finding of R5's order, each a block: its action, the steps that settled its choices and its departure for a fix, or its question, then the decision as recorded. */
 function decisionBlocks(view: Page, finding: FindingView, say: Speaker): string[][] {
@@ -593,7 +593,7 @@ function commentOf(view: FormView, finding: FindingView & { readonly placement: 
   const unrecorded = render(leftOutOf([{ piece: 'record', finding: finding.finding.id }]));
   if (unrecorded.body.length <= maxPostedLength) return { comment: placed(unrecorded.body), secrets: unrecorded.secrets, leftOut: 'record' };
   const { words } = view;
-  const factsForm = (choices: readonly string[]): string => blocks([`**${words.findingLabel} ${String(finding.finding.number)}**`], [findingFacts(view, finding)], [`${words.commentFactsNotice} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])}`], [...choices], ...trace).join('\n');
+  const factsForm = (choices: readonly string[]): string => blocks([`**${words.findingLabel} ${String(finding.finding.number)}**`], [findingFacts(view, finding)], [`${words.commentFactsNotice} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding.finding.number))]])}`], [...choices], ...trace).join('\n');
   const say = speakerOf(view.input.machine, view.words, view.names, cache);
   const open = factsForm(choiceRecord(view, finding, say, 'open'));
   if (open.length <= maxPostedLength) return { comment: placed(open), secrets: say.secrets(), leftOut: 'text' };
@@ -651,13 +651,10 @@ function leftOutNotice(view: Page): string[] {
   const facts = factsLine([
     ...(whole.length === 0 ? [] : [[words.leftOutLabels.whole, valueList(whole.map((piece) => words.wholePieces[piece]))] as const]),
     ...counted.map((kind) => [words.leftOutLabels[kind], String(counts[kind])] as const),
-    [words.reportCommandLabel, codeSpan(reportCommandOf(view))],
+    [words.reportCommandLabel, codeSpan(reportCommand(view, '<n>'))],
   ]);
   return [`${words.leftOutNotice} ${facts}`];
 }
-
-/** The command that prints a finding of the run, with the place of its number. */
-const reportCommandOf = (view: FormView): string => `deep-review report --run ${shortRunId(view.state.id)} --finding <n>`;
 
 /**
  * The floor (R5, TD6 of the review that always posts): the body a review
@@ -683,7 +680,7 @@ const reportCommandOf = (view: FormView): string => `deep-review report --run ${
 function floorBody(view: Page): string {
   const { words } = view;
   const comments = (['record', 'text'] as const).map((piece) => [piece === 'record' ? words.leftOutLabels.commentRecords : words.leftOutLabels.commentTexts, view.commentsLeftOut.filter((comment) => comment.piece === piece).length] as const).filter(([, count]) => count > 0);
-  const notice = `${words.floorNotice} ${factsLine([...comments.map(([label, count]) => [label, String(count)] as const), [words.reportCommandLabel, codeSpan(reportCommandOf(view))]])}`;
+  const notice = `${words.floorNotice} ${factsLine([...comments.map(([label, count]) => [label, String(count)] as const), [words.reportCommandLabel, codeSpan(reportCommand(view, '<n>'))]])}`;
   const questions = view.findings.filter((finding) => finding.question !== null && (finding.question.answer === null || finding.question.answer.option === null)).length;
   const departures = view.findings.filter((finding) => finding.departure !== null && finding.departure.review === null).length;
   const choices = view.findings.reduce((sum, finding) => sum + unsettledChoices(finding), 0);
@@ -956,7 +953,7 @@ function findingLine(view: Page, finding: FindingView, say: Speaker): string {
   const facts = factsLine([[words.verdictLabel, verdictText(view, finding)], [words.decisionLabel, words.decisionValues[decisionValue(finding)]], ...(finding.question === null ? [] : [[words.recommendedLabel, String(finding.question.choice)] as const])]);
   // A finding whose text is left out gets the command that prints it after its line (R2, R6 of the review that always posts).
   const shown = shownAs(view, finding);
-  const command = shown === 'item' || shown === 'line' ? [factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])] : [];
+  const command = shown === 'item' || shown === 'line' ? [factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding.finding.number))]])] : [];
   return [`**${findingRef(view, finding)}.** ${sentenceText(titleText(view, finding, say))}`, facts, ...(action === null ? [] : [action]), ...command].join(' ');
 }
 
