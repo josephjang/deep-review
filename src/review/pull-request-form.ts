@@ -672,7 +672,9 @@ function commentCounts(view: Page): (readonly [string, string])[] {
  * written rule and choices that no one settled wait on a person, with the
  * command that answers a question or a fix; each condition that holds, as
  * its label, or, when none is listed, the fixed label that none holds or
- * that none was judged, and the number of fixes on a PLAUSIBLE verdict;
+ * that none was judged, and the number of fixes on a PLAUSIBLE verdict,
+ * the labels and the number after the fixed notice that nothing waits on
+ * them and no command answers them, as the full body gives it;
  * the fixed line that no check ran in the review, or that the fix pass
  * runs the checks, then each kind of gap the run has, as its label, or
  * that it has none; the tables of the verdicts and of how
@@ -710,7 +712,8 @@ function floorBody(view: Page): string {
     [waiting],
     questions + departures === 0 ? [] : answerLine(view, questions > 0, departures > 0),
     conditions,
-    looks,
+    // The fixed notice before the reasons to look, as the full body gives it, so that right under the command that answers they do not read as items it answers.
+    ...(looks.length === 0 ? [] : [[words.looksNotice], looks]),
     [words.notExaminedHeading],
     gaps,
     [words.trustHeading],
