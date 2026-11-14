@@ -29,7 +29,7 @@ import { counted } from './markdown.ts';
 import { findingMarker, lastLineMarker, publicationMarker } from './markers.ts';
 import { machineContextOf } from './public-text.ts';
 import { pullRequestForm, type PullRequestForm } from './pull-request-form.ts';
-import type { FitStep } from './pull-request-fit.ts';
+import type { FindingPiece, FitStep, WholeStepPiece } from './pull-request-fit.ts';
 import { placeFindings, type FindingPlacement } from './pull-request-view.ts';
 import { chooseReportRun, noReportWords } from './report-choice.ts';
 import { runIdOf } from './runs.ts';
@@ -241,7 +241,7 @@ function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
 }
 
 /** A piece of the body that leaves whole, as a dry run and the log name it (R9 of the review that always posts). */
-const wholeWords: Readonly<Record<Exclude<FitStep, { readonly finding: string }>['piece'], string>> = {
+const wholeWords: Readonly<Record<WholeStepPiece, string>> = {
   'minor-table': 'the table of the minor findings',
   refuted: 'the refuted candidates',
   diagrams: 'the diagrams',
@@ -249,7 +249,7 @@ const wholeWords: Readonly<Record<Exclude<FitStep, { readonly finding: string }>
 };
 
 /** A piece taken from findings, named with their numbers, as a dry run and the log name it. */
-function findingPieceWords(piece: Extract<FitStep, { readonly finding: string }>['piece'], numbers: readonly number[]): string {
+function findingPieceWords(piece: FindingPiece, numbers: readonly number[]): string {
   const findings = `${numbers.length === 1 ? 'finding' : 'findings'} ${numbers.join(', ')}`;
   switch (piece) {
     case 'record':
@@ -271,7 +271,7 @@ function findingPieceWords(piece: Extract<FitStep, { readonly finding: string }>
  */
 function bodyLeftOutWords(run: RunState, steps: readonly FitStep[]): string {
   const numbers = briefOf(run).numbers;
-  const items: ({ readonly whole: Exclude<FitStep, { readonly finding: string }>['piece'] } | { readonly piece: Extract<FitStep, { readonly finding: string }>['piece']; readonly findings: number[] })[] = [];
+  const items: ({ readonly whole: WholeStepPiece } | { readonly piece: FindingPiece; readonly findings: number[] })[] = [];
   for (const step of steps) {
     if (!('finding' in step)) {
       items.push({ whole: step.piece });

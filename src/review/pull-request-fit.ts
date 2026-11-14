@@ -27,6 +27,12 @@ export type FitStep =
   | { readonly piece: 'line'; readonly finding: string }
   | { readonly piece: 'floor' };
 
+/** A step that takes a piece of the body whole, of no one finding. */
+export type WholeStep = Exclude<FitStep, { readonly finding: string }>;
+
+/** The pieces of the body that leave whole, the floor among them. */
+export type WholeStepPiece = WholeStep['piece'];
+
 /** The pieces that one finding loses, from the least to the most. */
 export type FindingPiece = 'record' | 'text' | 'line' | 'left';
 
