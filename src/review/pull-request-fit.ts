@@ -7,7 +7,7 @@
  * prefix into what each section of the body reads. Pure: it renders
  * nothing.
  */
-import { acts, inFull, isMinor, leftAsIs, majorActing, minorActing, openDeparture, openQuestion, type FindingView, type FormView } from './pull-request-view.ts';
+import { acts, areaDiagramsShown, inFull, isMinor, leftAsIs, minorActing, openDeparture, openQuestion, type FindingView, type FormView } from './pull-request-view.ts';
 import { choicesShown } from './state.ts';
 
 /**
@@ -77,10 +77,9 @@ const lastRankedFirst = (findings: readonly FindingView[]): FindingView[] => [..
 export function fitOrder(view: FormView): FitStep[] {
   const left = lastRankedFirst(leftAsIs(view));
   const full = lastRankedFirst(view.findings.filter(inFull));
-  const waiting = (finding: FindingView): boolean => waitsOnPerson(finding);
-  const free = (finding: FindingView): boolean => !waiting(finding);
+  const free = (finding: FindingView): boolean => !waitsOnPerson(finding);
   const record = (finding: FindingView): FitStep => ({ piece: 'record', finding: finding.finding.id });
-  const diagrams = (majorActing(view).length > 0 && view.areas !== null && view.areas.some((area) => area.diagram !== null)) || (view.core.kind === 'writer' && view.core.core.diagram !== null);
+  const diagrams = areaDiagramsShown(view) || (view.core.kind === 'writer' && view.core.core.diagram !== null);
   const freeFull = full.filter(free);
   return [
     ...(minorActing(view).length > 0 ? [{ piece: 'minor-table' } as const] : []),
@@ -91,8 +90,8 @@ export function fitOrder(view: FormView): FitStep[] {
     ...(diagrams ? [{ piece: 'diagrams' } as const] : []),
     ...freeFull.map((finding): FitStep => ({ piece: 'text', finding: finding.finding.id })),
     ...freeFull.filter(isMinor).map((finding): FitStep => ({ piece: 'line', finding: finding.finding.id })),
-    ...lastRankedFirst([...leftAsIs(view), ...view.findings.filter(inFull)]).filter((finding) => waiting(finding) && hasRecord(finding)).map(record),
-    ...left.filter(waiting).map((finding): FitStep => ({ piece: 'left', finding: finding.finding.id })),
+    ...lastRankedFirst([...left, ...full]).filter((finding) => waitsOnPerson(finding) && hasRecord(finding)).map(record),
+    ...left.filter(waitsOnPerson).map((finding): FitStep => ({ piece: 'left', finding: finding.finding.id })),
     { piece: 'floor' },
   ];
 }
