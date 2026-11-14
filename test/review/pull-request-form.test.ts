@@ -397,14 +397,20 @@ describe('the parts of the writer\'s answer and of the verifiers\' notes (R2 to 
     excludes(body, 'Evidence: the report of the run.');
   });
 
-  it('says why a verdict is PLAUSIBLE in the writer\'s words, or the verifier\'s reason and its kind as recorded words', () => {
+  it('says why a verdict is PLAUSIBLE in the writer\'s words beside the verifier\'s kind as a fact, or the verifier\'s reason and its kind as recorded words', () => {
     const state = withVerdict(run().fold(), 'RIPPLE-1', { verdict: 'PLAUSIBLE', unconfirmed: { kind: 'choice', text: 'which of the two guards to keep' } });
     includes(formOf(state).comments[0]!.body, '**Why it is not CONFIRMED.** Why PLAUSIBLE: a choice that remains. In the words of its verifier: which of the two guards to keep.');
     const said = writerAnswer();
     (said.findings[0] as WrittenFinding).unconfirmed = 'Two guards would each do, and the code does not say which the author means.';
     const written = formOf(state, said).comments[0]!.body;
-    includes(written, '**Why it is not CONFIRMED.** Two guards would each do, and the code does not say which the author means.');
+    includes(written, '**Why it is not CONFIRMED.** Two guards would each do, and the code does not say which the author means. Why PLAUSIBLE: a choice that remains.\n');
     excludes(written, 'which of the two guards to keep');
+    const fact = formOf(withVerdict(run().fold(), 'RIPPLE-1', { verdict: 'PLAUSIBLE', unconfirmed: { kind: 'fact', text: 'whether a caller passes null' } }), said).comments[0]!.body;
+    includes(fact, 'which the author means. Why PLAUSIBLE: a fact not settled.\n');
+    // A verdict recorded before verifiers gave their reason has no kind to show beside the writer's text.
+    const before = formOf(withVerdict(run().fold(), 'RIPPLE-1', { verdict: 'PLAUSIBLE', unconfirmed: null }), said).comments[0]!.body;
+    includes(before, '**Why it is not CONFIRMED.** Two guards would each do, and the code does not say which the author means.\n');
+    excludes(before, 'Why PLAUSIBLE:');
   });
 
   it('gives a question in the writer\'s words: what it asks, the question, each option\'s meaning, cost and rule in a table, and why deep-review recommends its option, with the decider\'s words folded', () => {
