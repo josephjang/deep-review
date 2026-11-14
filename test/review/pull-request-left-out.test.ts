@@ -36,14 +36,20 @@ describe('the pieces a body leaves out one finding at a time', () => {
   const order = ['minor-table', 'record:SWEEP-2', 'record:RIPPLE-1', 'refuted', 'diagrams', 'text:SWEEP-2', 'text:RIPPLE-1', 'line:SWEEP-2', 'left:SWEEP-1'];
   // The notice under the heading that the first step adds is longer than the table of one minor finding, so a body that loses only the table never fits where the whole one did not, and the form goes on to the next step.
   const expected = order.map((_, index) => order.slice(0, index)).concat([order]).filter((steps) => steps.length !== 1);
-  const boundaries = sampleBoundaries((pad) => renderedOf(withVerdict(state, 'SWEEP-1', { authorChoice: `Whether ${'c'.repeat(pad)}` }), answer(), noLine), 60_000, expected);
-  const forms = boundaries.flatMap(({ below, at: atLimit, above }) => [below, atLimit, above]);
+  let sampled: PullRequestForm[] | undefined;
+  /** The forms at each state, sampled once when a test first asks, so a state the order does not reach fails under that test. */
+  const samples = (): PullRequestForm[] => {
+    sampled ??= sampleBoundaries((pad) => renderedOf(withVerdict(state, 'SWEEP-1', { authorChoice: `Whether ${'c'.repeat(pad)}` }), answer(), noLine), 60_000, expected).flatMap(({ below, at: atLimit, above }) => [below, atLimit, above]);
+    return sampled;
+  };
 
   it('takes each step of the order in turn, a finding that waits on a person last, until the body fits, even a step that alone does not shorten it', () => {
+    const forms = samples();
     assert.deepEqual([...new Set(forms.map((form) => JSON.stringify(stepsOf(form))))].map((steps) => JSON.parse(steps) as string[]), expected);
   });
 
   it('leaves the diagram of the core of the change with those of the areas, with a notice of its own in the core (R2 row 5)', () => {
+    const forms = samples();
     const before = at(forms, order.slice(0, 4));
     includes(before, 'E["empty file"] --> N["null"]');
     const after = at(forms, order.slice(0, 5));
@@ -52,7 +58,7 @@ describe('the pieces a body leaves out one finding at a time', () => {
   });
 
   it('gives a minor finding whose text left an item with its anchor, its line and the command that prints it, apart from the blocks of the others (R2 row 6)', () => {
-    const body = at(forms, order.slice(0, 6));
+    const body = at(samples(), order.slice(0, 6));
     excludes(body, '### Finding 2');
     includes(body, '### Finding 1');
     includes(body, '**Findings whose text is left out.** To fit the length GitHub takes, the text of each of these findings is left out; the report of the run prints each, in the words of the workers that recorded it.\n\n- <a id="finding-2"></a>**[Finding 2](#finding-2).** In the words of deep-review\'s ranking: s');
@@ -61,7 +67,7 @@ describe('the pieces a body leaves out one finding at a time', () => {
   });
 
   it('keeps a major finding whose text left as its line in its area, with no link and with the command that prints it (R2 row 6, R6)', () => {
-    const body = at(forms, order.slice(0, 7));
+    const body = at(samples(), order.slice(0, 7));
     excludes(body, '### Finding 1');
     excludes(body, '(#finding-1)');
     includes(body, '- **Finding 1.** parse() reads the null before any guard. Verdict: CONFIRMED. Decision: fix. Guard the null before parse reads it. Command that prints it: `deep-review report --run run-1 --finding 1`.');
@@ -69,7 +75,7 @@ describe('the pieces a body leaves out one finding at a time', () => {
   });
 
   it('counts a minor finding whose line left as not listed, and names it nowhere as a link (R2 row 7)', () => {
-    const body = at(forms, order.slice(0, 8));
+    const body = at(samples(), order.slice(0, 8));
     excludes(body, '#finding-2');
     excludes(body, '**Findings whose text is left out.**');
     includes(body, 'Not listed here: 1. To fit the length GitHub takes, these findings are not listed here; the report of the run prints each.');
@@ -78,6 +84,7 @@ describe('the pieces a body leaves out one finding at a time', () => {
   });
 
   it('keeps a finding left as is that waits on a person, with its choice in view, until every other finding has lost all it can (R4)', () => {
+    const forms = samples();
     includes(at(forms, order.slice(0, 8)), 'Choice its verifier left to the author: Whether c');
     const last = at(forms, order);
     excludes(last, 'Whether c');
@@ -97,10 +104,15 @@ describe('the record of a finding that waits on a person', () => {
     return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }, said.findings[1]!] };
   };
   const expected = [[], ['minor-table', 'refuted', 'record:SWEEP-1'], ['minor-table', 'refuted', 'record:SWEEP-1', 'record:RIPPLE-1']];
-  const boundaries = sampleBoundaries((pad) => renderedOf(state, answerOf(pad), noLine), 60_000, expected);
-  const forms = boundaries.flatMap(({ below, at: atLimit, above }) => [below, atLimit, above]);
+  let sampled: PullRequestForm[] | undefined;
+  /** The forms at each state, sampled once when a test first asks, so a state the order does not reach fails under that test. */
+  const samples = (): PullRequestForm[] => {
+    sampled ??= sampleBoundaries((pad) => renderedOf(state, answerOf(pad), noLine), 60_000, expected).flatMap(({ below, at: atLimit, above }) => [below, atLimit, above]);
+    return sampled;
+  };
 
   it('leaves last of what a finding loses, the last-ranked first, and keeps its question and its departure in view (R4 row 8)', () => {
+    const forms = samples();
     const question = at(forms, expected[1]!);
     includes(question, '**The question.**');
     includes(question, '| Option | In the words of deep-review\'s decider |');
@@ -112,7 +124,7 @@ describe('the record of a finding that waits on a person', () => {
   });
 
   it('shows in view, once the record leaves, each choice no one settled, as the verifier\'s, after the command that prints the record (R4)', () => {
-    const fix = at(forms, expected[2]!);
+    const fix = at(samples(), expected[2]!);
     includes(fix, `The decision as deep-review recorded it is left out here to fit the length GitHub takes. Command that prints it: \`deep-review report --run run-1 --finding 1\`.\n\n- Choice its verifier left to the author: ${choice} Settled as: not settled by deep-review`);
     excludes(fix, 'Grounds: Parse reads the null');
   });
