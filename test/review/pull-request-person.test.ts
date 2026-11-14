@@ -4,7 +4,8 @@ import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import { findingMarker } from '../../src/review/markers.ts';
 import type { PullRequestForm } from '../../src/review/pull-request-form.ts';
-import { longFindingHistory, paddedAnswer, renderedOf } from '../helpers/pull-request-review.ts';
+import { longFindingHistory, paddedAnswer, pullRequestRun as run, renderedOf, rewritten, stepsOf, writerAnswer, type WrittenFinding } from '../helpers/pull-request-review.ts';
+import { answer } from '../helpers/review-history.ts';
 
 const includes = (text: string, part: string): void => assert.ok(text.includes(part), `${JSON.stringify(part)} in:\n${text}`);
 const excludes = (text: string, part: string): void => assert.ok(!text.includes(part), `no ${JSON.stringify(part)} in:\n${text}`);
@@ -42,5 +43,37 @@ describe('a comment posted with its facts alone', () => {
     assert.ok(comment.length <= 60_000, String(comment.length));
     excludes(comment, 'Choice its verifier left to the author');
     assert.equal(comment.split('\n').at(-1), `<!-- ${findingMarker('run-1', 'RIPPLE-1')} -->`);
+  });
+});
+
+// R7 of the review in the writer's words: the notice that a model wrote the sentences stands while an item under "What needs a person" posts the writer's text.
+describe('the notice that a model wrote the sentences, beside what needs a person', () => {
+  // Both findings minor, the question answered and the departure accepted, so neither waits on a person and the order takes their lines.
+  const state = rewritten(run(), (kind, payload) => {
+    if (kind === 'ranking.recorded') return { ...payload, findings: (payload.findings as Record<string, unknown>[]).map((finding) => ({ ...finding, severity: 'minor' })) };
+    return undefined;
+  }).add('answer.recorded', answer('SWEEP-1', 1)).add('answer.recorded', answer('RIPPLE-1', 'accept')).fold();
+  const noLine: PullRequestFile[] = [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: '@@ -1,1 +1,1 @@\n-old 1\n+new 1' }];
+  /** The writer's answer with its core, summary and text of what was not examined dropped, and finding 1's title padded with `pad` characters. */
+  const answerOf = (pad: number) => {
+    const said = writerAnswer();
+    const fix = said.findings[0] as WrittenFinding;
+    return { ...said, summary: null, notExamined: null, core: null, findings: [{ ...fix, title: `${fix.title} ${'t'.repeat(pad)}` }, said.findings[1]!] };
+  };
+  const departure = 'The rule says each caller guards its own input';
+
+  it('stays while a departure\'s text of the writer is posted, after the order took the line of each finding', () => {
+    const form = renderedOf(state, answerOf(65_000), noLine);
+    assert.ok(stepsOf(form).includes('line:RIPPLE-1') && stepsOf(form).includes('line:SWEEP-1'), stepsOf(form).join());
+    assert.ok(!stepsOf(form).includes('floor'), stepsOf(form).join());
+    includes(form.body, departure);
+    includes(form.body, 'A model wrote the sentences');
+  });
+
+  it('stays with nothing left out, where the findings in full post the writer\'s text too', () => {
+    const form = renderedOf(state, answerOf(0), noLine);
+    assert.deepEqual(stepsOf(form), []);
+    includes(form.body, departure);
+    includes(form.body, 'A model wrote the sentences');
   });
 });
