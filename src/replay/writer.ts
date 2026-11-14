@@ -182,9 +182,9 @@ export interface WriterFacts {
   readonly failed: readonly FailedPart[];
 }
 
-/** The characters of every text an answer holds, keys left out: how much the writer wrote. */
+/** The characters of every text an answer holds, as Unicode code points, keys left out: how much the writer wrote. */
 export function textCharacters(value: unknown): number {
-  if (typeof value === 'string') return value.length;
+  if (typeof value === 'string') return [...value].length;
   if (Array.isArray(value)) return value.reduce<number>((sum, item) => sum + textCharacters(item), 0);
   if (value !== null && typeof value === 'object') return Object.values(value).reduce<number>((sum, item) => sum + textCharacters(item), 0);
   return 0;
