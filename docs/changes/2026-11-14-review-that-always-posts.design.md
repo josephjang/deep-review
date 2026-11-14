@@ -85,13 +85,13 @@ Within a row that names each finding, the steps go from the highest number of a 
 
 The minor findings, what the review did not examine and the areas render as with today's cuts `minor-table`, `refuted` and `area-diagrams`. The core of the change leaves its diagram out with the areas' diagrams, under the same notice.
 
-`recordBlocks` takes whether the record is left out, and then returns one facts line in place of the fold: a label that says the recorded decision is not here, and the command `deep-review report --run <id> --finding <n>` as code. A finding left as is with no writer's text, whose record is `choiceRecord` alone, gets the same line in place of its choices.
+`recordBlocks` takes whether the record is left out. It then leaves the decider's recorded words and their notice out of the fold, and puts one facts line after it: a label that says the decision as recorded is not here, and the command `deep-review report --run <id> --finding <n>` as code, which prints that decision from the ledger (`decisionBlockLines` in `src/review/decision-report.ts`). The fold of a fix keeps the writer's text of the fix in full, under a summary that names it, since the summary "The decision as deep-review recorded it" is no longer true of it. A fold with no writer's text, that of a finding left as is or of a question, is left out whole, and the line stands in its place. A finding left as is with no writer's text, whose record is `choiceRecord` alone, gets the same line in place of its choices.
 
 `inFullSection` renders a finding at `text` as a list item: its anchor, its line as `findingLine` gives it, and the command that prints it. It leaves a finding at `line` out, and ends with the count of those, under the label "Not listed here" and a notice. `leftSection` leaves a finding at `left` out and counts it in the same way, as today's cut does for the findings it does not keep.
 
 A link to a finding that the body no longer holds would point at no anchor. `hrefOf` returns none for such a finding, and `findingRef` then shows the label and the number as text.
 
-`headingSection` gains the notice of R6 when any step was taken or any comment lost a piece: a fixed notice that the review does not hold all of the run and that the report of the run holds all of it, on the machine of the person who ran the review; then one facts line with each kind of piece left out and its count, and the command `deep-review report --run <id>`. It is a fixed notice and data, so code writes no sentence of the run, as [R1 of the review in the writer's words](2026-11-12-review-in-the-writers-words.requirements.md#r1-code-writes-no-sentence-of-the-run) asks.
+`headingSection` gains the notice of R6 when any step was taken or any comment lost a piece: a fixed notice that the review does not hold all of the run, that the report of the run prints each finding with its evidence and its decision in the words of the workers, and that a text of the writer that is not here is in the writer's answer on the machine that holds the run, which no command prints; then one facts line with each kind of piece left out and its count, and the command `deep-review report --run <id>`. It is a fixed notice and data, so code writes no sentence of the run, as [R1 of the review in the writer's words](2026-11-12-review-in-the-writers-words.requirements.md#r1-code-writes-no-sentence-of-the-run) asks.
 
 `trustSection` asks `postsWriterText` whether the review posts any text of the writer. That function reads what is left out in place of the cuts, so the notice that a model wrote the sentences is absent from a floor, which posts none.
 
@@ -121,7 +121,7 @@ The recorded places do not change: a finding that the body no longer lists keeps
 
 ### The table of words
 
-`PullRequestWords` gains, in English and in Korean, the fixed notice of R6 and its form for the floor, the labels of the kinds of piece left out, the label and the notice of a record that is not here, of a text that did not fit and of a comment in its facts form, and the label of the command that prints. `leftCut` changes its words, since the findings it stands for are no longer those whose verifiers named no choice. Each entry is a string, as the table's type asks.
+`PullRequestWords` gains, in English and in Korean, the fixed notice of R6 and its form for the floor, the labels of the kinds of piece left out, the label and the notice of a record that is not here, the summary of a fold that holds the writer's text of the fix alone, the label and the notice of a text that did not fit and of a comment in its facts form, and the label of the command that prints. `leftCut` changes its words, since the findings it stands for are no longer those whose verifiers named no choice. Each entry is a string, as the table's type asks.
 
 ### The README (R10)
 
