@@ -140,7 +140,7 @@ This replaces the rule that a cut keeps every finding left as is whose verifier 
 
 ### R5: The floor always fits
 
-When the body is still over the limit after row 9, the form posts the floor. The floor holds what the review reviewed, the counts of the findings by severity and by decision, how many questions and how many fixes against a written rule wait on a person with the command that answers them, the conditions that hold as their labels, the tables of the verdicts, the notice of R6, and the last line with the run. It holds no text of a worker and no text whose length a run decides, so it fits for every run. The comments on their lines are posted with the floor as with any other body.
+When the body is still over the limit after row 9, the form posts the floor. The floor holds, in this order: the heading with what the run reviewed; the notice of R6; the table of the findings by severity and by decision, with the fixed notice of what happens next; how many questions and how many fixes against a written rule wait on a person, with the command that answers one; each condition that holds, as its label; the tables of the verdicts and of how the findings were checked; the last line with the engine, the run and the commits; and the marker of the publication, by which a publication that a stop left open is found again. It holds no text of a worker and no text whose length a run decides, so it fits for every run. The comments on their lines are posted with the floor as with any other body.
 
 ### R6: The review says what it left out
 
