@@ -1023,8 +1023,10 @@ function minorSection(view: Page, say: Speaker): Section {
  * reason, or the ranking's summary and the decider's grounds as recorded
  * words; its facts with the reason of the closed list and the finding
  * that supersedes it; the steps that settled its choices; its line; and
- * the decision as recorded. Cut, those whose verifier named a choice and
- * the notice in place of the others.
+ * the decision as recorded. A finding that a `left` step of the order
+ * took is not listed, and is counted, with the notice, in place of the
+ * listed ones; one that waits on a person leaves last, in row 9 of R2 of
+ * the review that always posts.
  */
 function leftSection(view: Page, say: Speaker): Section {
   const { words } = view;
