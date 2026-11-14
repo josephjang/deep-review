@@ -253,9 +253,9 @@ const recordedWords = (view: FormView, speaker: RecordedSpeaker, text: string): 
 /** A finding's number as a link to where the body or its comment gives it, with the label that says finding. */
 const findingRef = (view: FormView, finding: FindingView): string => `[${view.words.findingLabel} ${String(finding.finding.number)}](${hrefOf(view, finding)})`;
 
-/** The findings of `numbers` as links, in the order given; a number of no ranked finding as itself. */
+/** The findings of `numbers` as links, each once, in ascending order, as `findingWords` names them; a number of no ranked finding as itself. */
 function findingRefs(view: FormView, numbers: readonly number[]): string {
-  return valueList(numbers.map((number) => {
+  return valueList([...new Set(numbers)].sort((a, b) => a - b).map((number) => {
     const finding = view.findings.find((candidate) => candidate.finding.number === number);
     return finding === undefined ? String(number) : findingRef(view, finding);
   }));
