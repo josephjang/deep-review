@@ -5,7 +5,7 @@ import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import { findingMarker } from '../../src/review/markers.ts';
 import type { PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { longFindingHistory, paddedAnswer, pullRequestRun as run, renderedOf, rewritten, stepsOf, writerAnswer, type WrittenFinding } from '../helpers/pull-request-review.ts';
-import { answer } from '../helpers/review-history.ts';
+import { answer, changeReading } from '../helpers/review-history.ts';
 
 const includes = (text: string, part: string): void => assert.ok(text.includes(part), `${JSON.stringify(part)} in:\n${text}`);
 const excludes = (text: string, part: string): void => assert.ok(!text.includes(part), `no ${JSON.stringify(part)} in:\n${text}`);
@@ -75,5 +75,41 @@ describe('the notice that a model wrote the sentences, beside what needs a perso
     assert.deepEqual(stepsOf(form), []);
     includes(form.body, departure);
     includes(form.body, 'A model wrote the sentences');
+  });
+});
+
+// R5 of the review that always posts; principle 8: the floor says what the review did not judge or run, as fixed labels.
+describe('the coverage the floor states', () => {
+  /** The floor of `state`, whose finding 1's text is padded so that nothing less fits, with every finding in the body. */
+  const floorOf = (state: RunState, fixPass: 'to-come' | 'continued' = 'to-come'): string => {
+    const said = writerAnswer();
+    const fix = said.findings[0] as WrittenFinding;
+    const noLine: PullRequestFile[] = [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: '@@ -1,1 +1,1 @@\n-old 1\n+new 1' }];
+    const form = renderedOf(state, { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(70_000)}` }, said.findings[1]!] }, noLine, { fixPass });
+    assert.equal(stepsOf(form).at(-1), 'floor');
+    return form.body;
+  };
+  /** The part of a floor from `from` up to the next heading. */
+  const sectionOf = (body: string, from: string): string => {
+    const start = body.indexOf(from);
+    assert.ok(start !== -1, `${from} in:\n${body}`);
+    const end = body.indexOf('\n### ', start + from.length);
+    return body.slice(start, end === -1 ? undefined : end);
+  };
+  /** The state with the triage's account of the change, its conditions as `holds` says. */
+  const withConditions = (state: RunState, holds: boolean): RunState => ({ ...state, review: { ...state.review!, change: { kind: 'given', reading: { ...changeReading, publicInterface: { ...changeReading.publicInterface, holds } } as never } } });
+
+  it('says that no condition was judged for a run whose triage gave no account, so it does not read as one where none holds', () => {
+    const needs = sectionOf(floorOf(run().fold()), '### What needs a person');
+    includes(needs, '\n\nReasons to look: not judged for this run.');
+    excludes(needs, '**It changes a public interface.**');
+  });
+
+  it('says that no condition holds for a run whose triage judged none to, and gives the label of one that holds in its place', () => {
+    const none = sectionOf(floorOf(withConditions(run().fold(), false)), '### What needs a person');
+    includes(none, '\n\nReasons to look: none.');
+    const held = sectionOf(floorOf(withConditions(run().fold(), true)), '### What needs a person');
+    excludes(held, 'Reasons to look:');
+    includes(held, '- **It changes a public interface.**');
   });
 });
