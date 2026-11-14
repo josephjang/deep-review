@@ -371,6 +371,22 @@ export const majorActing = (view: FormView): FindingView[] => view.findings.filt
 /** Whether the areas of the body show a diagram: a major finding acts, so the areas are given, and the writer drew one for an area (R4; R2 row 5 of the review that always posts). */
 export const areaDiagramsShown = (view: FormView): boolean => majorActing(view).length > 0 && view.areas !== null && view.areas.some((area) => area.diagram !== null);
 
+/** Whether the core of the change shows a diagram: the writer's core, with one drawn. */
+export const coreDiagramShown = (view: FormView): boolean => view.core.kind === 'writer' && view.core.core.diagram !== null;
+
+/** Whether the body shows a diagram that the diagrams step takes: one of the areas or of the core (R2 row 5 of the review that always posts). */
+export const diagramsShown = (view: FormView): boolean => areaDiagramsShown(view) || coreDiagramShown(view);
+
+/**
+ * Whether the block of a finding holds the fold of a record ("The order as
+ * data" of the design of the review that always posts): a finding with a
+ * decision, and, for one left as is, with the writer's text of it. A
+ * finding left as is with no writer's text shows its choices in view with
+ * no fold, and a finding with no decision shows nothing, so neither has a
+ * record to take.
+ */
+export const hasRecord = (finding: FindingView): boolean => finding.decision !== null && (acts(finding) || finding.left !== null);
+
 /** The minor findings that ask a person to act: those that reach what a user sees first, then the others, each in rank order (R13). */
 export const minorActing = (view: FormView): FindingView[] => {
   const minor = view.findings.filter((finding) => isMinor(finding) && acts(finding));
