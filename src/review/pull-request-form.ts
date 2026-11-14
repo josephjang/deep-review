@@ -463,13 +463,7 @@ function recordBlocks(view: FormView, finding: FindingView, say: Speaker): strin
   if (decision.decision === 'ask' && question !== null) {
     for (const option of question.options) recorded.push(`- ${words.optionLabel} ${String(option.number)}: ${say.sentence(option.option)} ${words.costLabel}: ${say.sentence(option.cost)} ${words.ruleLabel}: ${say.sentence(option.rule)}`);
   }
-  recorded.push(`- ${words.groundsLabel}: ${say.sentence(decision.grounds)}`);
-  for (const shown of choicesShown(finding.choices, decision.settled)) {
-    const settled = shown.settled === null
-      ? labeledValue(words.settledChoiceLabel, words.notSettled)
-      : `${words.settledChoiceLabel}: ${say.sentence(shown.settled.choice)} ${factsLine([[words.settledByLabel, words.settleSteps[shown.settled.by]]])} ${words.sourceLabel}: ${say.sentence(shown.settled.source)}`;
-    recorded.push(`- ${[...shown.verifiers.map((choice) => `${words.verifierChoiceLabel}: ${say.sentence(choice)}`), settled].join(' ')}`);
-  }
+  recorded.push(`- ${words.groundsLabel}: ${say.sentence(decision.grounds)}`, ...choiceRecord(view, finding, say));
   // A finding left as is takes no answer and the fix pass applies nothing to it, so its record carries no notice that they apply these words.
   const notice = decision.decision === 'leave' ? [] : [words.recordNotice];
   const parts = [...writerText, [`${words.recorded.decider}:`, ...recorded]];
@@ -910,7 +904,7 @@ function leftSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): 
   return { part: 'left as is', lines: blocks([words.leftHeading], details(words.leftSummary, ...shown.map(block)), cutNotice) };
 }
 
-/** The choices beside a decision with no writer's text, as recorded words under their labels; none when its verifiers named none and it settles none. */
+/** The choices beside a decision, each verifier's choice and the one that settles it as recorded words under their labels, in its record or alone where the writer gave no text; none when its verifiers named none and it settles none. */
 function choiceRecord(view: FormView, finding: FindingView, say: Speaker): string[] {
   const { words } = view;
   return choicesShown(finding.choices, finding.decision?.settled ?? []).map((shown) => {
