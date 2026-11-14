@@ -956,20 +956,21 @@ function postsWriterText(view: FormView, cuts: ReadonlySet<BodyCut>): boolean {
 
 /**
  * How far to trust the review (R12; R7 of the review in the writer's
- * words): the verdicts and how the findings were checked, as tables; the
- * candidates and the refuted ones; the notice that a model wrote the
- * sentences and the data is the ledger's, when the review posts any text
- * of the writer; the notice of a run with no explanation; the parts of
- * the writer's answer the review lacks; and the findings answered after
- * the writer wrote.
+ * words): the verdicts, with how many of the major CONFIRMED ones were
+ * reproduced by running them, and how the findings were checked, as
+ * tables; the candidates and the refuted ones; the notice that a model
+ * wrote the sentences and the data is the ledger's, when the review posts
+ * any text of the writer; the notice of a run with no explanation; the
+ * parts of the writer's answer the review lacks; and the findings
+ * answered after the writer wrote.
  */
 function trustSection(view: FormView, cuts: ReadonlySet<BodyCut>): Section {
   const { words, counts } = view;
   const columns = words.verdictColumns;
   const unverified = counts.unverified === 0 ? [] : [columns.unverified];
-  const verdicts = factsTable([columns.verdict, columns.findings, columns.major, ...unverified], [
-    ['CONFIRMED', String(counts.confirmed), String(counts.majorConfirmed), ...(counts.unverified === 0 ? [] : ['0'])],
-    ['PLAUSIBLE', String(counts.plausible), String(counts.major - counts.majorConfirmed), ...(counts.unverified === 0 ? [] : [String(counts.unverified)])],
+  const verdicts = factsTable([columns.verdict, columns.findings, columns.major, columns.majorRan, ...unverified], [
+    ['CONFIRMED', String(counts.confirmed), String(counts.majorConfirmed), String(counts.majorConfirmedRan), ...(counts.unverified === 0 ? [] : ['0'])],
+    ['PLAUSIBLE', String(counts.plausible), String(counts.major - counts.majorConfirmed), '', ...(counts.unverified === 0 ? [] : [String(counts.unverified)])],
   ]);
   const bases = (['ran', 'traced', 'read'] as const).filter((basis) => counts.bases[basis] > 0).map((basis) => [words.basisValues[basis], String(counts.bases[basis])]);
   const basisTable = counts.findings === 0 ? [] : factsTable([words.basisColumns.basis, words.basisColumns.findings], [...bases, ...(counts.noBasis === 0 ? [] : [[words.noBasisValue, String(counts.noBasis)]])]);
