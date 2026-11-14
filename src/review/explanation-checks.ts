@@ -779,7 +779,8 @@ function decisionTextFailures(id: string, fix: WriterFix | null, ask: WriterAsk 
       ...(ask === null ? [] : [`${id} is decided fix and gives a question, which only a finding decided ask has`]),
       ...(blank(fix.text) ? [`the fix of ${id} says not what it changes`] : []),
       ...(facts.departs && (fix.departure === null || blank(fix.departure)) ? [`${id} departs from a written rule, and its fix does not say the rule, the fact against it and what the fix does instead`] : []),
-      ...(!facts.departs && fix.departure !== null ? [`${id} departs from no written rule, and its fix gives the text of a departure`] : []),
+      ...(!facts.departs && fix.departure !== null && blank(fix.departure) ? [`${id} gives an empty departure; give null, since it departs from no written rule`] : []),
+      ...(!facts.departs && fix.departure !== null && !blank(fix.departure) ? [`${id} departs from no written rule, and its fix gives the text of a departure`] : []),
     ];
   }
   if (ask === null) return [`${id} is decided ask and gives no question`, ...(fix === null ? [] : [`${id} is decided ask and gives a fix, which only a finding decided fix has`])];
@@ -827,7 +828,8 @@ function checkFindingV4(id: string, entries: readonly FindingEntryV4[], lineCoun
     ...(blank(action) ? [`${id} says not what deep-review would do`] : []),
     ...decisionTextFailures(id, fix, ask, facts),
     ...(facts.unconfirmed && (unconfirmed === null || blank(unconfirmed)) ? [`${id} has a PLAUSIBLE verdict whose verifier says why it is not confirmed, and the explanation does not say why`] : []),
-    ...(!facts.unconfirmed && unconfirmed !== null ? [`${id} says why it is not confirmed, which only a finding whose PLAUSIBLE verdict records why has`] : []),
+    ...(!facts.unconfirmed && unconfirmed !== null && blank(unconfirmed) ? [`${id} gives an empty unconfirmed; give null, since its verdict records no reason it is not confirmed`] : []),
+    ...(!facts.unconfirmed && unconfirmed !== null && !blank(unconfirmed) ? [`${id} says why it is not confirmed, which only a finding whose PLAUSIBLE verdict records why has`] : []),
     ...verdictFailures(`the explanation of ${id}`, [title, problem, action, postedDiagram ?? '', postedChecked ?? '', ...postedCases.map((cited) => cited.sentence), ...decisionTexts]),
     ...diagramFailuresOf(`the diagram of ${id}`, postedDiagram),
   ];
