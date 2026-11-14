@@ -201,6 +201,7 @@ export interface FormView {
   readonly areas: readonly AreaView[] | null;
   readonly refuted: readonly RefutedView[];
   readonly counts: ReviewCounts;
+  readonly decided: DecisionCounts;
   /** The writer's summary, which names the areas, so it is null when the writer's areas are not shown. */
   readonly summary: string | null;
   /** The writer's text of what the review did not examine, or null. */
@@ -249,6 +250,29 @@ export function reviewCountsOf(review: ReviewState): ReviewCounts {
     majorConfirmedRan: majorConfirmed.filter((entry) => entry.resolution.basis === 'ran').length,
     bases,
     noBasis: ranked.filter((entry) => entry.resolution.basis === null).length,
+  };
+}
+
+/** The counts of the ranked findings by what deep-review decided, which no answer changes (R6, R7 of the review in the writer's words). */
+export interface DecisionCounts {
+  readonly fix: number;
+  /** The fixes against a written rule, counted among `fix`. */
+  readonly fixAgainstRule: number;
+  readonly ask: number;
+  /** Every ranked finding that does not act, decided `leave` or not decided, as `findingsLeftAsIs` lists them. */
+  readonly leave: number;
+}
+
+/** The counts of the run by decision, from its state, as the writer is told them and the summary's table shows them. */
+export function decisionCountsOf(review: ReviewState): DecisionCounts {
+  const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
+  const decisions = rankedFindings(review).map((entry) => decided.get(entry.finding.id));
+  const fixes = decisions.filter((decision): decision is Extract<RecordedDecision, { readonly decision: 'fix' }> => decision?.decision === 'fix');
+  return {
+    fix: fixes.length,
+    fixAgainstRule: fixes.filter((decision) => decision.departure !== null).length,
+    ask: decisions.filter((decision) => decision?.decision === 'ask').length,
+    leave: decisions.filter((decision) => !asksToAct(decision?.decision)).length,
   };
 }
 
@@ -313,6 +337,7 @@ export function formViewOf(input: PullRequestFormInput): FormView {
       return { candidate, claim: line?.claim ?? null, why: line?.why ?? null };
     }),
     counts: reviewCountsOf(review),
+    decided: decisionCountsOf(review),
     // The summary names the areas, so it is not shown when the checks dropped them: a merge of any version takes the summary from the first answer that passed it when no answer passed the areas, and so can keep the summary and drop its areas.
     summary: recorded?.dropped.some((part) => part.part === 'areas') ?? false ? null : answer?.summary ?? null,
     notExamined: answer?.notExamined ?? null,

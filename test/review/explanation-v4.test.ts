@@ -3,9 +3,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
+import type { ReviewState } from '../../src/checkpoint/review-fold.ts';
 import { EvidenceStore } from '../../src/evidence/store.ts';
 import { checkAnswerV4, type AnswerCheckInput, type AnswerCheckInputV4, type CheckedAnswerV4, type DecisionFacts } from '../../src/review/explanation-checks.ts';
 import { decisionFactsOf, findingsLeftAsIs, mergeAnswersV4 } from '../../src/review/explanation.ts';
+import { decisionCountsOf } from '../../src/review/pull-request-view.ts';
 import type { WriterOutputV4 } from '../../src/review/schemas.ts';
 import type { ChangeMessages } from '../../src/review/tasks.ts';
 import { hasCore, writerTask, type WriterTaskInput } from '../../src/review/writer-task.ts';
@@ -227,7 +229,7 @@ describe('the checks of the writer\'s answer of version 4', () => {
 });
 
 describe('what the run holds an answer of version 4 to', () => {
-  const decidedRun = (decided: readonly unknown[]) => withCoreForm(withPullRequest(withCitedRuns(withBaseChecks(withDocumentationStep(decidedOf(mergeRanked(), decided), null))))).fold().review!;
+  const decidedRun = (decided: readonly unknown[] | null) => withCoreForm(withPullRequest(withCitedRuns(withBaseChecks(withDocumentationStep(decidedOf(mergeRanked(), decided), null))))).fold().review!;
 
   it('gives each finding to explain its decision as decided, with its departure, the count of its options and whether its verdict records why it is not confirmed', () => {
     const review = decidedRun([{ ...decisions[0], departure }, askDecision('SWEEP-1', true)]);
@@ -242,6 +244,13 @@ describe('what the run holds an answer of version 4 to', () => {
     const review = decidedRun(decisions);
     assert.deepEqual(findingsLeftAsIs(review), ['SWEEP-1']);
     assert.deepEqual([...decisionFactsOf(review).keys()], ['RIPPLE-1']);
+  });
+
+  it('counts the findings by decision once, a finding with no decision left as is, as findingsLeftAsIs lists it', () => {
+    const counted = (review: ReviewState) => ({ ...decisionCountsOf(review), left: findingsLeftAsIs(review).length });
+    assert.deepEqual(counted(decidedRun([{ ...decisions[0], departure }, askDecision('SWEEP-1', true)])), { fix: 1, fixAgainstRule: 1, ask: 1, leave: 0, left: 0 });
+    assert.deepEqual(counted(decidedRun(decisions)), { fix: 1, fixAgainstRule: 0, ask: 0, leave: 1, left: 1 });
+    assert.deepEqual(counted(decidedRun(null)), { fix: 0, fixAgainstRule: 0, ask: 0, leave: 2, left: 2 }, 'a run that recorded no decision leaves each finding as is');
   });
 });
 

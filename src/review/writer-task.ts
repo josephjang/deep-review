@@ -15,7 +15,7 @@ import { checkedAnswers, checkedAnswersV4, decisionFactsOf, findingsLeftAsIs, fi
 import { counted, findingWords, inlineText } from './markdown.ts';
 import { fenceFor } from './prompts.ts';
 import { publicCode, publicWords, type MachineContext } from './public-text.ts';
-import { reviewCountsOf } from './pull-request-view.ts';
+import { decisionCountsOf, reviewCountsOf } from './pull-request-view.ts';
 import { findingNumbers, rankedFindings, refuted, resolutionOf, shownChoiceLines, type ReportFinding } from './state.ts';
 import { commitMessagesSection, describeLocation, type ChangeMessages } from './tasks.ts';
 import { verdictBases, verdictBasisWords, type ChangeConditionName } from './vocabulary.ts';
@@ -138,9 +138,7 @@ const leftWords = 'left as is: give it a title and a reason in `left`, and expla
  */
 function countLines(review: ReviewState): string[] {
   const counts = reviewCountsOf(review);
-  const decided = new Map((review.decisions ?? []).map((decision) => [decision.id, decision]));
-  const ranked = rankedFindings(review).map((entry) => decided.get(entry.finding.id));
-  const fixes = ranked.filter((decision) => decision?.decision === 'fix');
+  const decided = decisionCountsOf(review);
   return [
     `- candidates the review passes raised: ${String(counts.candidates)}`,
     `- candidates after the duplicates were set aside: ${String(counts.groups)}`,
@@ -154,10 +152,10 @@ function countLines(review: ReviewState): string[] {
     `- findings whose verdict is PLAUSIBLE: ${String(counts.plausible)}`,
     `- findings no verifier examined: ${String(counts.unverified)}`,
     ...verdictBases.map((basis) => `- findings whose verifier established the verdict as "${verdictBasisWords[basis]}": ${String(counts.bases[basis])}`),
-    `- findings deep-review decided to fix: ${String(fixes.length)}`,
-    `- of them, fixes against a written rule: ${String(fixes.filter((decision) => decision?.decision === 'fix' && decision.departure !== null).length)}`,
-    `- findings deep-review asks the author about: ${String(ranked.filter((decision) => decision?.decision === 'ask').length)}`,
-    `- findings deep-review decided to leave as is: ${String(ranked.filter((decision) => decision === undefined || decision.decision === 'leave').length)}`,
+    `- findings deep-review decided to fix: ${String(decided.fix)}`,
+    `- of them, fixes against a written rule: ${String(decided.fixAgainstRule)}`,
+    `- findings deep-review asks the author about: ${String(decided.ask)}`,
+    `- findings deep-review decided to leave as is: ${String(decided.leave)}`,
   ];
 }
 
