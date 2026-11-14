@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import { diagramFailures } from '../../src/review/explanation-checks.ts';
-import { findingsToExplain, type RecordedAnswer } from '../../src/review/explanation.ts';
+import { findingsToExplain, type WriterAnswer } from '../../src/review/explanation.ts';
 import { findingMarker, publicationMarker } from '../../src/review/markers.ts';
 import { dryRunLines } from '../../src/review/publish.ts';
 import { bodyCuts, formRefusalWords, maxPostedLength, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
@@ -42,7 +42,7 @@ const reranked = (history: History, ranked: (finding: Record<string, unknown>) =
 });
 
 /** An answer that kept no part. */
-const empty: RecordedAnswer = { core: null, conditions: null, summary: null, areas: null, findings: [], left: null, refuted: null, notExamined: null };
+const empty: WriterAnswer = { core: null, conditions: null, summary: null, areas: null, findings: [], left: null, refuted: null, notExamined: null };
 
 describe('the place of a finding (R10, TD4)', () => {
   const placesOf = (decided: readonly unknown[], files: PullRequestFile[]) => placeFindings(run(decided).review(), files);
@@ -195,7 +195,7 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
 
   it('gives a question with no writer\'s action the option it recommends as the decider\'s recorded words, in an area line and a minor row, as an older answer has none (R8 of the review in the writer\'s words)', () => {
     // An answer of version 1 to 3 is adapted with no action for a question.
-    const older = (): RecordedAnswer => {
+    const older = (): WriterAnswer => {
       const said = writerAnswer();
       return { ...said, findings: [{ ...(said.findings[0] as WrittenFinding), action: null, fix: null, ask: null }] };
     };
@@ -340,7 +340,7 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
   });
 
   it('gives the notice that a model wrote the sentences only when the review posts some text of the writer, whatever answer it froze (R7 of the review in the writer\'s words)', () => {
-    const trustOf = (state: RunState, answer: RecordedAnswer): string => section(formOf(state, answer).body, '### How far to trust this review');
+    const trustOf = (state: RunState, answer: WriterAnswer): string => section(formOf(state, answer).body, '### How far to trust this review');
     // A writer that completed its unit has its answer frozen, even with every part dropped.
     const nothingKept = run(answerableDecisions(), explanation(worker(60), { dropped: [{ part: 'conclusion', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }, { part: 'finding', finding: 'SWEEP-1', failures: ['x'] }] })).fold();
     excludes(trustOf(nothingKept, empty), 'A model wrote the sentences');

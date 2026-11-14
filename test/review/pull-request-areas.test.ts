@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
-import type { RecordedAnswer } from '../../src/review/explanation.ts';
+import type { WriterAnswer } from '../../src/review/explanation.ts';
 import { publicationMarker } from '../../src/review/markers.ts';
 import { answerWithArea, formOf, pullRequestRun as run, renderedOf, sampleBoundaries, longFindingHistory, paddedAnswer } from '../helpers/pull-request-review.ts';
 import { answerableDecisions, explanation, withReportForm, worker } from '../helpers/review-history.ts';
@@ -49,7 +49,7 @@ describe('the writer\'s areas in the body', () => {
     const files: PullRequestFile[] = [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: '@@ -7,1 +7,1 @@\n-old 7\n+new 7' }];
     const token = `ghp_${'a1B2'.repeat(9)}`;
     /** The writer's answer with a long area diagram, its title holding the token when `secret`, and the fix's problem padded with `pad` characters. */
-    const answerOf = (pad: number, secret: boolean): RecordedAnswer => {
+    const answerOf = (pad: number, secret: boolean): WriterAnswer => {
       const said = paddedAnswer(pad);
       return { ...said, areas: said.areas!.map((area) => ({ ...area, title: secret ? `Parsing ${token}` : area.title })) };
     };

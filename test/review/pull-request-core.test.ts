@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import type { Core, RecordedAnswer } from '../../src/review/explanation.ts';
+import type { Core, WriterAnswer } from '../../src/review/explanation.ts';
 import { formOf, pullRequestRun as run, withAccount, withSettings, writerAnswer } from '../helpers/pull-request-review.ts';
 import { changeReading, decisions, departure, explanation, reference, withCoreForm, withReportForm, worker } from '../helpers/review-history.ts';
 
@@ -30,15 +30,15 @@ const writerCore = (change: Partial<Core> = {}): Core => ({
   ...change,
 });
 /** The writer's answer of version 3, with the core given. */
-const answerWith = (core: Core | null): RecordedAnswer => ({ ...writerAnswer(), areas: null, refuted: null, core, conditions: [] });
+const answerWith = (core: Core | null): WriterAnswer => ({ ...writerAnswer(), areas: null, refuted: null, core, conditions: [] });
 /** An answer that kept no part. */
-const empty: RecordedAnswer = { core: null, conditions: null, summary: null, areas: null, findings: [], left: null, refuted: null, notExamined: null };
+const empty: WriterAnswer = { core: null, conditions: null, summary: null, areas: null, findings: [], left: null, refuted: null, notExamined: null };
 
 /** The state with `src/gone.ts` removed by the change, beside `src/a.ts`. */
 const withRemoved = (state: RunState): RunState => ({ ...state, scope: { ...state.scope!, files: [...state.scope!.files, { path: 'src/gone.ts', status: 'deleted', symlink: false, before: { blob: reference('g') }, after: null }] } });
 /** The run configured at version 12 whose explanation records `recorded`, with the triage's account given. */
 const cored = (recorded: Record<string, unknown> = explanation(worker(60))): RunState => withRemoved(withAccount(withCoreForm(run(undefined, recorded)).fold()));
-const bodyOf = (state: RunState, answer: RecordedAnswer | null, change: { readonly commits?: readonly string[] | null } = { commits }): string => formOf(state, answer, undefined, change).body;
+const bodyOf = (state: RunState, answer: WriterAnswer | null, change: { readonly commits?: readonly string[] | null } = { commits }): string => formOf(state, answer, undefined, change).body;
 
 // R1, R3, R4, R10, R11, R12, TD4 of the core of the change on the pull request.
 describe('the core of the change in the body', () => {
@@ -173,7 +173,7 @@ describe('the reasons to look in what needs a person', () => {
 
   it('gives the writer\'s sentence on a condition, and, when the writer could not explain it from the code, its sentence under its label and the triage\'s recorded words', () => {
     const state = withAccount(withCoreForm(run(decisions)).fold());
-    const answered = (conditions: RecordedAnswer['conditions']): string => needsOf(bodyOf(state, { ...answerWith(writerCore()), conditions }));
+    const answered = (conditions: WriterAnswer['conditions']): string => needsOf(bodyOf(state, { ...answerWith(writerCore()), conditions }));
     includes(answered([{ condition: 'public-interface', explanation: 'parse() is exported, and every caller of the package reads its result', unexplained: null }]), `- **It changes a public interface.** parse() is exported, and every caller of the package reads its result. Files that show it: ${fileAt(head, 'src/a.ts')}.`);
     includes(answered([{ condition: 'public-interface', explanation: null, unexplained: 'parse() is private to its module' }]), `- **It changes a public interface.** deep-review's writer could not explain it from the code: parse() is private to its module. In the words of deep-review's triage: parse() can now return null. Files that show it: ${fileAt(head, 'src/a.ts')}.`);
     includes(answered(null), interfaceInTriageWords);
@@ -209,7 +209,7 @@ describe('the reasons to look in what needs a person', () => {
 
   it('gives the notice that a model wrote the review when it posts the writer\'s sentence on a condition alone', () => {
     const state = withAccount(withCoreForm(run(decisions, explanation(worker(60), { dropped: [{ part: 'core', failures: ['x'] }, { part: 'conclusion', failures: ['x'] }, { part: 'areas', failures: ['x'] }, { part: 'refuted', failures: ['x'] }, { part: 'finding', finding: 'RIPPLE-1', failures: ['x'] }] }))).fold());
-    const only: RecordedAnswer = { ...empty, conditions: [{ condition: 'public-interface', explanation: 'parse() is exported', unexplained: null }] };
+    const only: WriterAnswer = { ...empty, conditions: [{ condition: 'public-interface', explanation: 'parse() is exported', unexplained: null }] };
     includes(section(bodyOf(state, only), '### How far to trust this review'), 'A model wrote the sentences');
     excludes(section(bodyOf(state, empty), '### How far to trust this review'), 'A model wrote the sentences');
   });
