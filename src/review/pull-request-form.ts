@@ -560,9 +560,13 @@ const traceLine = (view: FormView, finding: FindingView): string => `<sub>${fact
  * that always posts): the comment in full; over the limit, without the
  * record of its decision; still over, its facts form, which holds the
  * label and the number of the finding, its facts, the notice that its
- * text did not fit and the command that prints it, and no text of a
- * worker, so it always fits. A comment is fitted alone, so what it loses
- * changes no other comment.
+ * text did not fit and the command that prints it, then each choice its
+ * verifiers left to the author that deep-review did not settle, labeled
+ * as the verifier's, since what waits on a person stays in view (R4, R7).
+ * Those choices are the one text of a worker in the facts form, so a
+ * facts form they would carry over the limit leaves them out, and the
+ * form always fits. A comment is fitted alone, so what it loses changes
+ * no other comment.
  */
 function commentOf(view: FormView, finding: FindingView & { readonly placement: Extract<FindingPlacement, { place: 'line' }> }, cache: Map<string, Cleaned>): { readonly comment: FormComment; readonly secrets: number; readonly leftOut: CommentLeftOut['piece'] | null } {
   const { location } = finding.placement;
@@ -578,8 +582,11 @@ function commentOf(view: FormView, finding: FindingView & { readonly placement: 
   const unrecorded = render(leftOutOf([{ piece: 'record', finding: finding.finding.id }]));
   if (unrecorded.body.length <= maxPostedLength) return { comment: placed(unrecorded.body), secrets: unrecorded.secrets, leftOut: 'record' };
   const { words } = view;
-  const facts = blocks([`**${words.findingLabel} ${String(finding.finding.number)}**`], [findingFacts(view, finding)], [`${words.commentFactsNotice} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])}`], ...trace);
-  return { comment: placed(facts.join('\n')), secrets: 0, leftOut: 'text' };
+  const factsForm = (choices: readonly string[]): string => blocks([`**${words.findingLabel} ${String(finding.finding.number)}**`], [findingFacts(view, finding)], [`${words.commentFactsNotice} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])}`], [...choices], ...trace).join('\n');
+  const say = speakerOf(view.input.machine, view.words, view.names, cache);
+  const open = factsForm(choiceRecord(view, finding, say, 'open'));
+  if (open.length <= maxPostedLength) return { comment: placed(open), secrets: say.secrets(), leftOut: 'text' };
+  return { comment: placed(factsForm([])), secrets: 0, leftOut: 'text' };
 }
 
 /** The view as the body renders it with a prefix of the order left out (`leftOutOf`). */
