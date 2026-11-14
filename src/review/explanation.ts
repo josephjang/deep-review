@@ -28,7 +28,7 @@ import { defaultLanguage } from '../config/settings.ts';
 import type { ArtifactReference, EvidenceStore } from '../evidence/store.ts';
 import { commitIdsOrNull } from '../scope/git.ts';
 import { StructuralCheckError } from './errors.ts';
-import { checkAnswer, checkAnswerV4, gitLineCounts, heldConditions, type CheckedAnswer, type CheckedAnswerV4, type CheckedPart, type CoreCheckInput, type DecisionFacts, type ReportCheckInput } from './explanation-checks.ts';
+import { checkAnswer, checkAnswerV4, gitLineCounts, heldConditions, type AnswerCheckInput, type CheckedAnswer, type CheckedAnswerV4, type CheckedPart, type CoreCheckInput, type DecisionFacts, type ReportCheckInput } from './explanation-checks.ts';
 import { writerOutputSchema, writerOutputSchemaOf, writerOutputSchemaV2, writerOutputSchemaV3, writerOutputSchemaV4, type CitedSide, type WriterOutput, type WriterOutputV2, type WriterOutputV3, type WriterOutputV4 } from './schemas.ts';
 import { rankedFindings, refuted, type ReportFinding } from './state.ts';
 import { degradesOnNextFailure, truncated } from './steps.ts';
@@ -511,14 +511,11 @@ const writerFailures = (review: ReviewState): readonly UnitFailure[] => writerUn
 /**
  * The answers of the writers whose attempts at the unit failed in the
  * phase's current attempt, in order, as the evidence store froze them,
- * each read in the schema of the run's answer: the earlier answers a later
- * one is merged with. An attempt that ended with no answer, or one a
- * re-entered phase cleared, gives none.
+ * each that parses in `schema`, the schema of the run's answer: the
+ * earlier answers a later one is merged with. An attempt that ended with
+ * no answer, or one a re-entered phase cleared, gives none.
  */
-function earlierAnswers(state: RunState, review: ReviewState, evidence: Pick<EvidenceStore, 'read'>): AnyWriterOutput[] {
-  const version = explanationVersionOf(review);
-  if (version === 4) throw new Error(`Run ${state.id} has its writer answer in the fourth form, whose answers \`checkedAnswersV4\` reads`);
-  const schema = writerOutputSchemaOf(version);
+function earlierAnswers<T>(state: RunState, review: ReviewState, evidence: Pick<EvidenceStore, 'read'>, schema: z.ZodType<T>): T[] {
   return writerFailures(review).flatMap((failure) => {
     const worker = Object.hasOwn(state.workers, failure.workerId) ? state.workers[failure.workerId] : undefined;
     if (worker?.status !== 'finished' || worker.finish.output === null) return [];
@@ -527,14 +524,25 @@ function earlierAnswers(state: RunState, review: ReviewState, evidence: Pick<Evi
   });
 }
 
+/** An answer of any version, as far as the lines its cases cite. */
+interface CitingAnswer {
+  readonly findings: readonly { readonly explanation: { readonly cases: readonly { readonly lines: { readonly side: CitedSide; readonly path: string } }[] } | null }[];
+}
+
+/** The line counts of every path the cases of `answers` cite, read at once on the side each cites. */
+function citedLineCounts(worktree: string, scope: ScopeState, answers: readonly CitingAnswer[]): AnswerCheckInput['lineCount'] {
+  const cited = answers.flatMap((answer) => answer.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited) => cited.lines));
+  const citedAt = (side: CitedSide): string[] => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
+  return gitLineCounts(worktree, scope, { head: citedAt('head'), base: citedAt('base') });
+}
+
 /** The answers of the unit's earlier attempts and `latest`, checked against the run, in order, the lines of every path their cases cite read at once. */
 export function checkedAnswers(state: RunState, review: ReviewState, context: { readonly worktree: string; readonly evidence: Pick<EvidenceStore, 'read'> }, ids: readonly string[], latest: AnyWriterOutput | null): CheckedAnswer[] {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
-  const answers = [...earlierAnswers(state, review, context.evidence), ...(latest === null ? [] : [latest])];
-  const cited = answers.flatMap((answer) => answer.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited) => cited.lines));
-  const citedAt = (side: CitedSide): string[] => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
-  const lineCount = gitLineCounts(context.worktree, state.scope, { head: citedAt('head'), base: citedAt('base') });
   const version = explanationVersionOf(review);
+  if (version === 4) throw new Error(`Run ${state.id} has its writer answer in the fourth form, whose answers \`checkedAnswersV4\` reads`);
+  const answers = [...earlierAnswers<AnyWriterOutput>(state, review, context.evidence, writerOutputSchemaOf(version)), ...(latest === null ? [] : [latest])];
+  const lineCount = citedLineCounts(context.worktree, state.scope, answers);
   const report = version === 1 ? {} : { report: reportCheckInputOf(review) };
   const core = version === 3 && answers.length > 0 ? { core: coreCheckInputOf(review, state.scope, context.worktree) } : {};
   return answers.map((answer) => checkAnswer(answer, { ids, lineCount, ...report, ...core }));
@@ -579,18 +587,9 @@ export function decisionFactsOf(review: ReviewState): Map<string, DecisionFacts>
  */
 export function checkedAnswersV4(state: RunState, review: ReviewState, context: { readonly worktree: string; readonly evidence: Pick<EvidenceStore, 'read'> }, ids: readonly string[], latest: readonly WriterOutputV4[]): CheckedAnswerV4[] {
   if (state.scope === null) throw new Error(`Run ${state.id} has no scope`);
-  const earlier = writerFailures(review).flatMap((failure) => {
-    const worker = Object.hasOwn(state.workers, failure.workerId) ? state.workers[failure.workerId] : undefined;
-    if (worker?.status !== 'finished' || worker.finish.output === null) return [];
-    const parsed = writerOutputSchemaV4.safeParse(JSON.parse(context.evidence.read(worker.finish.output).toString('utf8')));
-    return parsed.success ? [parsed.data] : [];
-  });
-  const answers = [...earlier, ...latest];
+  const answers = [...earlierAnswers(state, review, context.evidence, writerOutputSchemaV4), ...latest];
   if (answers.length === 0) return [];
-  const cited = answers.flatMap((answer) => answer.findings.flatMap((entry) => entry.explanation?.cases ?? []).map((cited) => cited.lines));
-  const citedAt = (side: CitedSide): string[] => cited.filter((lines) => lines.side === side).map((lines) => lines.path);
-  const lineCount = gitLineCounts(context.worktree, state.scope, { head: citedAt('head'), base: citedAt('base') });
-  const input = { ids, lineCount, report: reportCheckInputOf(review), core: coreCheckInputOf(review, state.scope, context.worktree), decided: decisionFactsOf(review), left: findingsLeftAsIs(review) };
+  const input = { ids, lineCount: citedLineCounts(context.worktree, state.scope, answers), report: reportCheckInputOf(review), core: coreCheckInputOf(review, state.scope, context.worktree), decided: decisionFactsOf(review), left: findingsLeftAsIs(review) };
   return answers.map((answer) => checkAnswerV4(answer, input));
 }
 
