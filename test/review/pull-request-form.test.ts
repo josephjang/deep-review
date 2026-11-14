@@ -232,6 +232,16 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
     ].join('\n'));
   });
 
+  it('marks a minor row of a fix against a written rule with that decision as data, as the area lines do, and no other fix\'s row (R5 of the review in the writer\'s words)', () => {
+    const minorOf = (decided: readonly unknown[]): string => section(formOf(reranked(run(decided), (finding) => (finding.id === 'RIPPLE-1' ? { ...finding, severity: 'minor' } : finding)).fold(), writerAnswer(), []).body, '### The minor findings');
+    const against = minorOf(answerableDecisions());
+    includes(against, '| [Finding 1](#finding-1) | parse() reads the null before any guard. | not given | CONFIRMED | Guard the null before parse reads it. Decision: fix against a written rule. |');
+    includes(against, '| In the words of deep-review\'s decider: Accept it and return an empty result. Recommended option: 2. |');
+    const plain = minorOf(answerableDecisions(decisions[0] as Record<string, unknown>));
+    includes(plain, '| [Finding 1](#finding-1) | parse() reads the null before any guard. | not given | CONFIRMED | Guard the null before parse reads it. |');
+    excludes(plain, 'Decision:');
+  });
+
   it('folds the findings left as is, each with its facts, the reason of the closed list and the decider\'s grounds as recorded words where the writer gave no reason', () => {
     const left = formOf(run(decisions).fold(), { ...writerAnswer(), findings: [writerAnswer().findings[0]!] });
     includes(left.body, '### The findings left as is\n\n<details><summary>The findings left as is</summary>\n\n<a id="finding-2"></a>\n\n**Finding 2**\n\nIn the words of deep-review\'s ranking: extract the helper\n\nSeverity: minor. Verdict: PLAUSIBLE, unverified. Decision: leave as is. Reason: outside the change, and not a regression.\n\n**Why deep-review leaves it.** In the words of deep-review\'s decider: The helper would edit only lines the change does not touch.\n\n</details>');
