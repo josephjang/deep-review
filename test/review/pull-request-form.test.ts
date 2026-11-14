@@ -239,7 +239,8 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
     const written = formOf(run(decisions).fold(), { ...writerAnswer(), findings: [writerAnswer().findings[0]!], left: [{ id: 'SWEEP-1', title: 'A helper repeats a parse', why: 'It sits outside the change.' }] });
     includes(written.body, '**Finding 2**\n\n**A helper repeats a parse**\n\nSeverity: minor.');
     includes(written.body, '**Why deep-review leaves it.** It sits outside the change.');
-    includes(written.body, '<details><summary>The decision as deep-review recorded it</summary>');
+    // A finding left as is takes no answer and no fix, so its record carries no notice that they apply its words.
+    includes(written.body, '**Why deep-review leaves it.** It sits outside the change.\n\n<details><summary>The decision as deep-review recorded it</summary>\n\nIn the words of deep-review\'s decider:\n- Grounds: The helper would edit only lines the change does not touch.\n\n</details>');
   });
 
   it('gives what the run did not examine: the writer\'s text, no check, each gap as facts under the label of its kind, and the refuted candidates folded, each with its line and the finder\'s recorded words where the writer gave none', () => {
