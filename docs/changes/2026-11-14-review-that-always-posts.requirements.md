@@ -122,7 +122,7 @@ The order follows what a text is worth to the reader, which is what the reader l
 | 5 | The diagrams of the areas and of the core of the change | A notice | Each helps to read a text that stays |
 | 6 | The text in full of each fix with no line in the diff | The line of the finding and the command that prints it | The line still says what deep-review would do |
 | 7 | The line of each such finding | Their count as not listed | The counts of the summary still hold the finding, and a major one keeps its line in its area |
-| 8 | The record of the decision of each finding that waits on a person | As row 2 | It is what a reader opens to check a text that stays |
+| 8 | The record of the decision of each finding that waits on a person | As row 2 | The question, the departure or the choice that no one settled stays in view; the record is the decider's words behind it |
 | 9 | The text in full of each finding that waits on a person, or its place among the findings left as is | As rows 4 and 6 | What a person must decide is the last text of a finding to go |
 | 10 | Everything but the floor | The floor (R5) | Nothing less fits |
 
@@ -134,7 +134,7 @@ A row that names "each finding" takes the piece of one finding, checks whether t
 
 ### R4: What waits on a person is the last to go
 
-A finding that waits on a person is skipped by rows 2, 4, 6 and 7. Its record, its text in full and its place among the findings left as is stay until every other finding has lost all that those rows take. Only then do rows 8 and 9 take from it what rows 2, 4 and 6 take from the others: first the record of each such finding, the last-ranked first, then its text. A question and a fix against a written rule keep their line, and their item in what needs a person, until the floor. So a question, a fix against a written rule and a choice that no one settled are the last texts of findings that the review loses.
+A finding that waits on a person is skipped by rows 2, 4, 6 and 7. Its record, its text in full and its place among the findings left as is stay until every other finding has lost all that those rows take. Only then do rows 8 and 9 take from it what rows 2, 4 and 6 take from the others: first the record of each such finding, the last-ranked first, then its text. A question and a fix against a written rule keep their line, and their item in what needs a person, until the floor. A choice that a verifier named and the decision did not settle is not part of the record that row 8 takes: it stays in view under its finding, labeled as the verifier's, with the statement that deep-review did not settle it, until the finding itself leaves. So a question, a fix against a written rule and a choice that no one settled are the last texts of findings that the review loses.
 
 This replaces the rule that a cut keeps every finding left as is whose verifier named a choice ([R4 of the settled choice](2026-11-06-choice-settled-on-the-record.requirements.md#r4-the-form-places-each-finding-by-its-decision-alone)). A finding left as is whose choices the decision settled waits on no one, so its record leaves in row 2 and the finding in row 4, like any other. One whose verifier named a choice that the decision did not settle waits on a person and is kept as this requirement says.
 
