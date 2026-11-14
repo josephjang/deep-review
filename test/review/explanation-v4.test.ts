@@ -190,6 +190,39 @@ describe('the checks of the writer\'s answer of version 4', () => {
     assert.deepEqual(failing(verdict), { 'not-examined': ['what the review did not examine holds the verdict PLAUSIBLE, which the engine writes beside the finding'] });
   });
 
+  it('refuses an escaped line break, the two characters \\n, outside a code span, in the part of the text that holds it, and tells the retry to write a real one', () => {
+    const escaped = (what: string): string => `${what} holds the two characters \\n outside a code span, which GitHub shows as they are; write a real line break where a line or paragraph should end, and put the characters in a code span where they are code`;
+    assert.deepEqual(failing({ ...goodAnswer(), summary: 'The review found two findings.\\n\\nOne deep-review would fix.' }), { conclusion: [escaped('the summary')] });
+    // The same characters in a code span are code, and a real line break is the one asked for.
+    assert.deepEqual(failing({ ...goodAnswer(), summary: 'parse() splits on `\\n` and on ``a `\\n` b``.\n\nOne deep-review would fix.' }), {});
+    const everywhere = withExplanation('SWEEP-1', (explained) => {
+      explained.ask!.options[1]!.cost = 'A caller crashes.\\nIt must catch.';
+    });
+    everywhere.core.why = 'It says so.\\n';
+    everywhere.areas[0]!.intro = 'Both are about an empty input.\\n';
+    everywhere.left[0]!.why = 'A later change removes it.\\n';
+    everywhere.refuted[0]!.why = 'The handle is closed.\\n';
+    everywhere.notExamined = 'Every pass ran.\\nA verifier examined each finding.';
+    const failed = failing(everywhere);
+    assert.deepEqual(failed['finding SWEEP-1'], [escaped('the explanation of SWEEP-1')]);
+    assert.ok(failed.core!.includes(escaped('the core')));
+    assert.deepEqual(failed.areas, [escaped('area 1')]);
+    assert.deepEqual(failed.left, [escaped('the entry for MINOR-1 left as is')]);
+    assert.deepEqual(failed.refuted, [escaped('the refuted line for REF-1')]);
+    assert.deepEqual(failed['not-examined'], [escaped('what the review did not examine')]);
+    const unexplained = goodAnswer();
+    unexplained.findings[0] = { id: 'RIPPLE-1', explanation: null, unexplained: 'Its evidence names no line.\\nNone at all.' };
+    assert.deepEqual(failing(unexplained), { 'finding RIPPLE-1': [escaped('the reason RIPPLE-1 is unexplained')] });
+  });
+
+  it('holds no diagram to the rule of an escaped line break, and passes one drawn with real line breaks', () => {
+    const drawn = withExplanation('RIPPLE-1', (explained) => {
+      explained.diagram = 'sequenceDiagram\n  Caller->>parse: the input "a\\nb"\n  parse-->>Caller: crash';
+    });
+    drawn.areas[0]!.diagram = 'flowchart TD\n  A["an empty input"] --> B["a crash"]';
+    assert.deepEqual(failing(drawn), {});
+  });
+
   it('holds `left` to one entry for each finding left as is, and none for a finding that acts or no finding', () => {
     const answer = goodAnswer();
     answer.left = [
