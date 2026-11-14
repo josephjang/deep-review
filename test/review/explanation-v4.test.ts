@@ -8,7 +8,7 @@ import { checkAnswerV4, type AnswerCheckInput, type AnswerCheckInputV4, type Che
 import { decisionFactsOf, findingsLeftAsIs, mergeAnswersV4 } from '../../src/review/explanation.ts';
 import type { WriterOutputV4 } from '../../src/review/schemas.ts';
 import type { ChangeMessages } from '../../src/review/tasks.ts';
-import { writerTask, type WriterTaskInput } from '../../src/review/writer-task.ts';
+import { hasCore, writerTask, type WriterTaskInput } from '../../src/review/writer-task.ts';
 import { askDecision, decidedOf, decisions, departure, mergeRanked, withBaseChecks, withCitedRuns, withCoreForm, withDocumentationStep, withPullRequest, worker, type History } from '../helpers/review-history.ts';
 
 // The checks of the writer's answer of version 4 (R2, R3, PD11, TD2, TD7, TD8 of the review in the writer's words).
@@ -326,6 +326,11 @@ describe('the writer\'s task of an answer of version 4 (R2, R6, TD6 of the revie
     const task = writerTask(running().fold(), { worktree: input.worktree, evidence, machine: input.machine, commitMessages: messages });
     assert.match(task, /Return `conclusion`, `areas`, `findings`, `refuted`, `core` and `conditions` as your role prompt defines them\.$/);
     assert.doesNotMatch(task, /### The counts of the run|`left`/);
+  });
+
+  it('needs the commit messages exactly for the versions that have the core, as the replay reads them', () => {
+    assert.deepEqual(([1, 2, 3, 4] as const).map(hasCore), [false, false, true, true]);
+    assert.throws(() => writerTask(running().fold(), { ...input, commitMessages: null }), /lists the commit messages of the change and needs them/);
   });
 
   it('names each part an earlier answer failed by the field that holds it, and tells the retry the summary goes with the areas', () => {

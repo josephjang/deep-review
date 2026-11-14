@@ -276,6 +276,15 @@ function coreAsks(review: ReviewState, messages: ChangeMessages, clean: (text: s
 }
 
 /**
+ * Whether an answer of `version` gives the core of the change, so that the
+ * writer's task of it lists the commit messages of the change and needs
+ * them (TD7 of the core of the change on the pull request): versions 3 and
+ * 4. Each caller that supplies the messages asks this of the version it
+ * passes, so the requirement and its supply are one reading.
+ */
+export const hasCore = (version: ExplanationVersion): boolean => version === 3 || version === 4;
+
+/**
  * The writer's task (R18, R20, TD8 of the review on the pull request; R4,
  * R10, R11, R13, TD2 of the review that reads as a report): the language
  * the run recorded; the findings it explains, and in an answer of version
@@ -323,7 +332,7 @@ export function writerTask(state: RunState, input: WriterTaskInput): string {
     dropped = answers.length === 0 ? [] : mergeAnswers(version, answers, ids).dropped;
   }
   const report = version === 1 ? null : reportCheckInputOf(review);
-  const cored = version === 3 || version === 4;
+  const cored = hasCore(version);
   if (cored && (input.commitMessages === undefined || input.commitMessages === null)) throw new Error('The writer\'s task of an answer with the core of the change lists the commit messages of the change and needs them');
   const core = cored ? coreAsks(review, input.commitMessages!, clean) : [];
   const refutedCandidates = refuted(review);

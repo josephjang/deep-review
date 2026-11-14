@@ -36,7 +36,7 @@ import { writerOutputSchemaOf, type WriterOutputV4 } from '../review/schemas.ts'
 import { settledWorkers, spendOf } from '../review/spend.ts';
 import type { ChangeMessages } from '../review/tasks.ts';
 import { singleUnitKey } from '../review/vocabulary.ts';
-import { writerTask } from '../review/writer-task.ts';
+import { hasCore, writerTask } from '../review/writer-task.ts';
 import { assembleRoles } from '../roles/assemble.ts';
 import { withoutVariables } from '../runtime/environment.ts';
 import { runWorker } from '../runtime/launcher.ts';
@@ -264,9 +264,8 @@ export async function replayWriter(options: WriterReplayOptions): Promise<Writer
   if (assembled === undefined) throw new ReplayRefusedError(`The roles directory ${options.rolesRoot} assembles no ${role} role`);
   const settings = writerSettings(resolvePolicy(readPolicy(options.rolesRoot), roles, adapter, {}, platform), adapter, state, recordedWriterLaunch(recorded));
   const machine = machineContextOf({ worktree: state.worktree, checkpoint: root, gitCommon: locateCheckpoint(tree).commonDir, engine: join(import.meta.dirname, '..'), workers: state.workers, environment: options.environment ?? process.env, platform });
-  const cored = version === 4 || review.coreForm;
   const language = options.language ?? reviewLanguage(review);
-  const task = writerTask(state, { worktree: tree, evidence, machine, commitMessages: cored ? changeMessagesOf(scope, tree) : null, version, language });
+  const task = writerTask(state, { worktree: tree, evidence, machine, commitMessages: hasCore(version) ? changeMessagesOf(scope, tree) : null, version, language });
   const prompt = composeWorkerPrompt(assembled.prompt, { role, phase: 'explanation', unitKey, task }, scopeBlockOf(state, scope, tree, evidence));
   const ids = findingsToExplain(review);
   const findings = { explained: ids.length, left: findingsLeftAsIs(review).length, ranked: (review.ranking ?? []).length };
