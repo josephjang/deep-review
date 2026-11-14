@@ -52,8 +52,17 @@ export const labeledValue = (label: string, value: string): string => `${label}:
 /** Values as one value of a fact holds them: in the order given, parted by commas. */
 export const valueList = (values: readonly string[]): string => values.join(', ');
 
+/**
+ * The end of a text that already ends a sentence: a stop of Latin text
+ * (`.`, `!`, `?`), of CJK or full-width text (`。`, `！`, `？`, `．`) or an
+ * ellipsis, then any closing brackets and quotes, CJK ones included. The
+ * writer writes in the review's language, which can be any tag, so a CJK
+ * stop must keep a period from being added after it.
+ */
+const sentenceEnd = /[.!?。！？．…][)\]"'”’」』）]*$/u;
+
 /** Facts in a run, each a labeled value ended by a period, as `Severity: major. Verdict: CONFIRMED.`; a value that already ends a sentence keeps its own stop. */
-export const factsLine = (facts: readonly (readonly [label: string, value: string])[]): string => facts.map(([label, value]) => `${labeledValue(label, value)}${/[.?!]$/.test(value) ? '' : '.'}`).join(' ');
+export const factsLine = (facts: readonly (readonly [label: string, value: string])[]): string => facts.map(([label, value]) => `${labeledValue(label, value)}${sentenceEnd.test(value) ? '' : '.'}`).join(' ');
 
 /** Facts as a table: a header row of labels, then each row of values, every cell kept to its cell. */
 export function factsTable(labels: readonly string[], rows: readonly (readonly string[])[]): string[] {
@@ -114,7 +123,7 @@ export const findingLink = (number: number): string => `[finding ${String(number
  */
 export const sentenceText = (text: string): string => {
   const inline = inlineText(text).trimEnd();
-  if (/[.!?][)\]"'”’]*$/.test(inline)) return inline;
+  if (sentenceEnd.test(inline)) return inline;
   return `${inline.replace(/[:,;]$/, '')}.`;
 };
 
