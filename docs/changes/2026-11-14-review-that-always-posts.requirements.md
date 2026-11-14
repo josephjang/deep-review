@@ -300,6 +300,8 @@ In the floor a question is a count and a command. It is the departure from princ
 
 The order keeps the whole first part of the review, the diagram of the core aside, until the floor, as principle 5 puts it first. A core of many paragraphs can then outlast the text in full of a critical fix with no line. The proposal follows the principle. A measure of the core against the findings needs a run that meets the case.
 
+The author answered this question during the gate. A review that cannot hold even this much is very unlikely, and if it happens, the first approach to consider is to shorten each text, not to remove a section. So the order stays as written: the core of the change outlasts the text of every finding until the floor, as principle 5 puts it first. A run that meets the case would be answered first by shortening each text, not by moving the core earlier in the order. That points toward the kind of bound that PD4 rejects for this change, so it belongs to a later change with a proposal of its own, which touches #109 and #115, and not to this one.
+
 ### OQ2: On which pull request does the gate post a review that does not fit?
 
 #135 is merged, and `publish` posts to an open pull request only. The recorded run can be rendered in the new form but not posted. A copy of its change on the private repository of the gate would be a new run of about the cost of the first, 30.84 USD, and its findings would differ. The author chooses the pull request and approves the cost (R11).

@@ -249,4 +249,6 @@ The real post of a review whose body does not fit uncut (R11), which shows that 
 
 "docs(changes): Render only the prefixes of the order that could fit": the answer of OQ1 above. The form posts the body that a render after each step finds, but renders only the prefixes that could fit, by an upper bound of what each step takes from the body.
 
+"docs(changes): Answer whether a critical finding outlasts the core": the author answered OQ1 of the requirements. The order stays as written, with the core kept until the floor. A run in which the core would outlast the text of a critical finding is answered first by shortening each text, in a later change of its own, since that is the kind of bound PD4 rejects here.
+
 Two consequences of the design as written show in the tests, and neither changes the proposal. The first step taken adds the notice under the heading, which can be longer than the piece the step takes, such as the table of one minor finding, so a body that loses only that piece can be longer than the whole one, and the form goes on to the next step, as "Fitting the body" says it does. And a whole piece, such as the table of the minor findings, is counted by name in the notice, not by a number.
