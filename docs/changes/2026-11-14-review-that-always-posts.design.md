@@ -103,6 +103,8 @@ A link to a finding that the body no longer holds would point at no anchor. `hre
 
 A step is taken even when it shortens the body by little, and the loop does not depend on a step shortening it: it goes on to the next step either way. No step adds a line where no piece stood, since `fitOrder` names a piece only where the run has one.
 
+The loop renders only the prefixes that could fit (`firstFit`). Each step that takes a piece of a finding has an upper bound of what it can take from the body: the finding's block and line in the body with nothing left out, the links to it that the body gives, and a margin for the counts and notices that a step can drop elsewhere. From a body over the limit, each prefix at which the body, less the bounds of the steps taken since, is still over the limit holds a body over the limit too, so it is not rendered. A step that takes a whole piece has no bound, and the body is rendered after it. So the body that is posted is the one a render after each step finds, and a test checks the two against each other.
+
 ### The floor (R5)
 
 The step `floor` renders a body of its own, `floorBody`, which holds the list of R5 and nothing else, with the notice of R6 in its form for the floor, which says that the text of the review did not fit. Its last line is the marker of the publication, as `lastSection` ends every body today: `settleOf` in `src/review/publish.ts` finds a stopped publication by that marker, so a floor without it could be posted twice. The floor holds numbers, labels, fixed notices, commands, and ids of fixed length. It leaves out the version the runtime gave and the names of the models, which are strings that the form does not bound.
@@ -145,7 +147,7 @@ The order could live in the loop of `pullRequestForm` as branches. A list that `
 
 ### TD3: The body is rendered again after each step
 
-The form could add up the sizes of the pieces and compute the step at which the body fits. It renders again instead, as it does after each cut today. The size of a body is then never an estimate: the cleaning of each text, the notice under the heading and the counts of what is not listed all change with a step, and a render counts them all. A run with 100 findings in the body takes at most about 400 renders (OQ1).
+The form could add up the sizes of the pieces and compute the step at which the body fits. It renders again instead, as it does after each cut today. The size of a body is then never an estimate: the cleaning of each text, the notice under the heading and the counts of what is not listed all change with a step, and a render counts them all. A run with 100 findings in the body takes at most about 400 steps (OQ1). The bounds of `firstFit` only choose which prefixes to render, and the size of each prefix rendered is its render's, so the body posted is never chosen by an estimate.
 
 ### TD4: The recorded place of a finding does not say that the body left it out
 
