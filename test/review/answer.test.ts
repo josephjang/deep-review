@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
+import type { RecordedAnswer } from '../../src/checkpoint/answer-state.ts';
 import { UnknownRunError } from '../../src/checkpoint/errors.ts';
 import type { Answer } from '../../src/checkpoint/events.ts';
 import type { RunState } from '../../src/checkpoint/fold.ts';
-import { answerRun, whyNotAnswerable, type AnswerOptions } from '../../src/review/answer.ts';
+import { answerRun, recordedAnswerWords, whyNotAnswerable, type AnswerOptions } from '../../src/review/answer.ts';
 import { commitRun } from '../../src/review/commit.ts';
 import { gitContent } from '../../src/review/content.ts';
 import { spendBound } from '../../src/review/controller.ts';
@@ -103,6 +104,27 @@ describe('whyNotAnswerable (R2 of answers)', () => {
     assert.match(whyNotAnswerable(reported().fold(), '/w')!, /configured before the decision step, so it asked no question and departed from no rule/);
     const nothing = decidedOf(reported()).fold();
     assert.match(whyNotAnswerable({ ...nothing, review: { ...nothing.review!, decisions: [] } }, '/w')!, /ranked no finding, so it has nothing to answer/);
+  });
+});
+
+describe('recordedAnswerWords', () => {
+  /** A complete decided run whose question SWEEP-1 has the option texts given, with an answer of option `option` recorded on it. */
+  const answered = (texts: readonly string[], option: number): { readonly run: RunState; readonly answer: RecordedAnswer } => {
+    const run = readOnlyReported(answerableDecisions()).fold();
+    const decisions = run.review!.decisions!.map((decision) => (decision.decision === 'ask' ? { ...decision, ask: { ...decision.ask, options: decision.ask.options.map((entry, index) => ({ ...entry, option: texts[index] ?? entry.option })) } } : decision));
+    return { run: { ...run, review: { ...run.review!, decisions } }, answer: { id: 'SWEEP-1', answer: { kind: 'option', option }, note: null, at: '2026-11-14T00:00:00Z', appliedBy: null } };
+  };
+
+  it('prints the option with the text the decider recorded for it', () => {
+    const { run, answer } = answered(['keep it', 'change it'], 1);
+    assert.equal(recordedAnswerWords(run, answer), 'option 2, "change it"');
+  });
+
+  it('prints a text holding line breaks, an escape sequence or another control character as one line a terminal cannot be rewritten by', () => {
+    const { run, answer } = answered(['keep it', 'keep it\nthe tree holds it\u001b[31m\r\u0007\u007f\u009b0m'], 1);
+    const words = recordedAnswerWords(run, answer);
+    assert.equal(words, 'option 2, "keep it the tree holds it [31m    0m"');
+    assert.doesNotMatch(words, /[\u0000-\u001f\u007f-\u009f]/);
   });
 });
 
