@@ -207,4 +207,46 @@ The recorded run of #135 in the new form, a real post of a review that does not 
 
 ## Verification
 
-No checks have run yet.
+The series implements every element of the design in the order "Where the code goes" gives, with the changes of the proposal listed at the end of this section. Of the gate of R11, the render of the recorded run of #135 ran; the real post of a review that does not fit uncut and deep-review's review of this pull request did not, since each costs money and waits on the author's approval.
+
+### What was implemented
+
+The order is data first, with no caller ("feat(review): Build the order in which a long review leaves its pieces"): `fitOrder`, `leftOutOf` and `waitsOnPerson` in `src/review/pull-request-fit.ts`, and the predicates of the view that the order and the form share moved to `pull-request-view.ts`. The sections of the body then read what is left out in place of a set of cuts, the four old cuts expressed as steps, with no change of behavior ("refactor(review): Render the body from what the order leaves out").
+
+The form takes the order of R2 with each piece and what stands in its place: the record of a decision leaves its fold, which keeps the writer's text of a fix under a summary of its own, for the command that prints it and each choice no one settled; a finding in full leaves its block for its line, in a list of its own for a minor finding and with the command in its area for a major one; a link to a finding the body no longer holds shows its number as text; the diagram of the core of the change leaves with those of the areas; and the notice under the heading counts what left. The dry run and the log name each step taken, with the numbers of its findings, and the cleaned texts are kept between renders ("feat(review): Leave a long review's pieces out in the order of worth"). The floor is the last step, and a body is no longer refused ("feat(review): Post the floor when nothing less of a review fits"), with `firstFit`, which renders only the prefixes that could fit. A comment over the limit loses its record, then all but its facts, and the refusal types go with their callers in `publish.ts` and the replay of the decider ("feat(review): Post a comment that does not fit with less, never refuse"). The Korean table has the words of what was left out ("feat(review): Say what a long review left out in Korean too"), the README says what R10 asks ("docs: Say that every review is posted, and in what order it fits"), a test runs `publish` on a review longer than GitHub takes ("test(review): Post a review longer than GitHub takes, end to end"), and `dist/` is rebuilt last ("chore(dist): Rebuild for the review that always posts").
+
+The ledger gains no event, no version and no value of a closed list, as NG1 says, so there is no new golden fixture.
+
+### The checks that ran
+
+`npm run check` passed at each commit of code when it was made, and at the head of the series it ran 3886 tests: 3873 passed, 0 failed, 13 skipped. Each commit of the series was type-checked and linted on its own with `git rebase --exec "npm run typecheck && npm run lint"`. `npm run verify` passed after the rebuild: the 43 files of `dist/claude` and the 42 of `dist/codex` are what the sources build. `npm run test:contract` did not run: the change does not touch how the engine stops, resumes, launches a child or appends to the ledger.
+
+The new tests hold the order and `firstFit` (`test/review/pull-request-fit.test.ts`, 12 tests, one of which checks `firstFit` against a render after each step on 2,000 built sequences of sizes), the pieces taken one finding at a time, the record of a finding that waits on a person, the floor, a run of 2,000 findings and the Korean words (`test/review/pull-request-left-out.test.ts`, 13 tests), the order on the fixtures of the old cuts, the notice under the heading and the two forms of a comment (`test/review/pull-request-form.test.ts`, 9 tests new or rewritten), and the post of a review longer than GitHub takes (`test/review/publish.test.ts`, 1 test). The tests that expected a refusal of a body and of a comment now expect a review.
+
+### The measure of OQ1
+
+Each render cleans the texts of the body again, so the cleaned text of each is kept between renders, as OQ1 proposed. That alone was not enough. On built runs with every finding in the body, fitting the body took 0.1 s with 50 findings, 0.8 s with 200 and 4.6 s with 500, growing with the square of the findings, toward over a minute for the 2,000 of the test of R5; the cost is spread over building the strings of each render. So the form renders only the prefixes that could fit (`firstFit`, "Fitting the body"), and the same runs took 0.06 s, 0.06 s, 0.1 s and 0.4 s for 2,000 findings. The recorded run of #135 fits in under 0.1 s.
+
+### The render of #135 (R11, M2; OQ2)
+
+`publish --dry-run` refuses #135, which is merged, and its head moved after the run. So a script the author keeps outside the repository gives `pullRequestForm` the recorded run, as `publish` does, with the files of the change built from the patch the run captured, as the replay of the decider builds them, and with no patch for the 8 files of which GitHub gives no diff of the pull request today. Where each of the 35 findings goes is then exactly what the print of the uncut body, made while #135 was open, says. The author keeps the run and both prints outside the repository.
+
+As the run stood at its read-only report, the engine before this change refuses the body at 72,084 characters. This engine posts it at 58,895 characters, after rows 1 to 3 of R2, in this order: the table of the minor findings; the recorded decision of the 12 findings left as is with the writer's text and then of the 11 findings in full, each with the command that prints it; and the 18 refuted candidates, with their count. Every other text stays: the core of the change, what needs a person, what the review did not examine with its writer's text, the 11 findings in full with the writer's fix in its fold, the 12 findings left as is with the reason of each, and the 12 comments, whole. This is the estimate of the Summary, which said about 57,000 characters. The notice under the heading names the two pieces left out whole and counts the 23 findings whose record left, with the command that prints a finding, as R6 says. As the run stands now, continued into its fix pass, the body is 59,146 characters, refused before at 72,335, with the same pieces left out.
+
+### Reviews that fit (R8, M3)
+
+Four recorded runs that fit, which the author keeps outside the repository, were printed with the engine before this change and with this one from the same input: `23072b51` (a body of 21,539 characters, reviewed on Codex), `9225f138` (21,777), `e71add5e` (20,916) and `deb3f378` (48,738), each in Korean, the language of every recorded run that fits; the English review of #135 is the one that does not. The body and every comment are equal character for character in each. The one line of the dry run that differs is the line of what was left out, which says "Left out of the body to fit: nothing." in place of "Cut from the body to fit: nothing.", as R9 says.
+
+### What was not verified
+
+The real post of a review whose body does not fit uncut (R11), which shows that GitHub takes a body near the limit, did not run: a run like the first costs about 31 USD, and the author chooses the pull request and approves the cost (OQ2 of the requirements). deep-review's review of this pull request did not run, for its cost. M4, a fresh session that reads only the fitted review of #135 and says what it left out, did not run, since it calls a model. Rows 4 to 9 of R2, the floor and the two forms of a comment are held by tests on built runs alone, as the section on principle 12 of the requirements says; no real run reached them.
+
+### Changes of the proposal during the work
+
+"docs(changes): Let a finding with no decision wait on a person": the design read a choice that no one settled only from a decision of fix or leave, and a finding with no decision, which a failed decision phase leaves, now waits by such a choice too, as the requirements define it.
+
+"docs(changes): Give a major finding whose text leaves its command": row 6 of R2 puts the command that prints a finding in place of its text, and the design named no place for it for a major finding; its line in its area now carries it.
+
+"docs(changes): Render only the prefixes of the order that could fit": the answer of OQ1 above. The form posts the body that a render after each step finds, but renders only the prefixes that could fit, by an upper bound of what each step takes from the body.
+
+Two consequences of the design as written show in the tests, and neither changes the proposal. The first step taken adds the notice under the heading, which can be longer than the piece the step takes, such as the table of one minor finding, so a body that loses only that piece can be longer than the whole one, and the form goes on to the next step, as "Fitting the body" says it does. And a whole piece, such as the table of the minor findings, is counted by name in the notice, not by a number.
