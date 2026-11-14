@@ -636,7 +636,8 @@ function headingFacts(view: FormView): string[][] {
  */
 function leftOutNotice(view: Page): string[] {
   const { words, leftOut } = view;
-  const whole = (['minor-table', 'refuted', 'diagrams'] as const satisfies readonly WholePiece[]).filter((piece) => (piece === 'minor-table' ? leftOut.minorTable : piece === 'refuted' ? leftOut.refuted : leftOut.diagrams));
+  const wholeLeftOut: Readonly<Record<WholePiece, boolean>> = { 'minor-table': leftOut.minorTable, refuted: leftOut.refuted, diagrams: leftOut.diagrams };
+  const whole = (['minor-table', 'refuted', 'diagrams'] as const satisfies readonly WholePiece[]).filter((piece) => wholeLeftOut[piece]);
   const states = [...leftOut.findings.values()];
   const counts: Readonly<Record<Exclude<LeftOutKind, 'whole' | 'commentRecords' | 'commentTexts'>, number>> = {
     records: states.filter((state) => state === 'record').length,
