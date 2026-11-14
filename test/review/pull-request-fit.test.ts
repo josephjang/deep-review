@@ -28,7 +28,7 @@ function finding(built: Built): FindingView {
   return {
     finding: { id, number: built.number, severity: built.severity ?? 'major', verdict: built.verdict ?? 'CONFIRMED' },
     decision: decision === null ? null : { id, decision, settled },
-    placement: { finding: id, place: built.place ?? (decision === 'fix' || decision === 'ask' ? 'body' : 'body'), reason: 'outside-the-diff' },
+    placement: { finding: id, place: built.place ?? 'body', reason: 'outside-the-diff' },
     question: decision === 'ask' ? { id, answer: built.open === false ? { option: 1 } : null } : null,
     departure: built.departure === true ? { id, review: null } : null,
     left: built.leftText === true ? { id, title: 't', why: 'w' } : null,
