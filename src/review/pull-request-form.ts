@@ -308,15 +308,18 @@ function findingFacts(view: FormView, finding: FindingView, extra: readonly (rea
   ]);
 }
 
+/** The writer's title of a finding, from its entry left as is before its entry that acts; none where the writer gave neither. */
+const writtenTitle = (finding: FindingView): string | undefined => finding.left?.title ?? finding.written?.title;
+
 /** A finding's title as a line of its own: the writer's in bold, or the first sentence of its summary as the ranking's recorded words. */
 function titleLine(view: FormView, finding: FindingView, say: Speaker): string {
-  const written = finding.left?.title ?? finding.written?.title;
-  return written === undefined ? recordedWords(view, 'ranking', say.words(firstSentence(finding.entry.finding.summary))) : `**${say.prose(written)}**`;
+  const text = titleText(view, finding, say);
+  return writtenTitle(finding) === undefined ? text : `**${text}**`;
 }
 
 /** A finding's title inside a line or a cell: the writer's, or the ranking's recorded words under their label. */
 function titleText(view: FormView, finding: FindingView, say: Speaker): string {
-  const written = finding.left?.title ?? finding.written?.title;
+  const written = writtenTitle(finding);
   return written === undefined ? recordedWords(view, 'ranking', say.words(firstSentence(finding.entry.finding.summary))) : say.prose(written);
 }
 
