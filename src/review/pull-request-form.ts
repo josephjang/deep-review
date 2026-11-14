@@ -907,14 +907,22 @@ function leftSection(view: FormView, say: Speaker, cuts: ReadonlySet<BodyCut>): 
   return { part: 'left as is', lines: blocks([words.leftHeading], details(words.leftSummary, ...shown.map(block)), cutNotice) };
 }
 
-/** The choices beside a decision, each verifier's choice and the one that settles it as recorded words under their labels, in its record or alone where the writer gave no text; none when its verifiers named none and it settles none. */
+/**
+ * The choices beside a decision, each verifier's choice and the one that
+ * settles it as recorded words under their labels, in its record or alone
+ * where the writer gave no text; none when its verifiers named none and
+ * it settles none. A settlement of one verifier's choice, or of none, is
+ * one list item; one of several is the item, with each verifier's choice
+ * an item nested under it.
+ */
 function choiceRecord(view: FormView, finding: FindingView, say: Speaker): string[] {
   const { words } = view;
-  return choicesShown(finding.choices, finding.decision?.settled ?? []).map((shown) => {
+  return choicesShown(finding.choices, finding.decision?.settled ?? []).flatMap((shown) => {
     const settled = shown.settled === null
       ? labeledValue(words.settledChoiceLabel, words.notSettled)
       : `${words.settledChoiceLabel}: ${say.sentence(shown.settled.choice)} ${factsLine([[words.settledByLabel, words.settleSteps[shown.settled.by]]])} ${words.sourceLabel}: ${say.sentence(shown.settled.source)}`;
-    return `- ${[...shown.verifiers.map((choice) => `${words.verifierChoiceLabel}: ${say.sentence(choice)}`), settled].join(' ')}`;
+    const verifiers = shown.verifiers.map((choice) => `${words.verifierChoiceLabel}: ${say.sentence(choice)}`);
+    return verifiers.length > 1 ? [`- ${settled}`, ...verifiers.map((choice) => `  - ${choice}`)] : [`- ${[...verifiers, settled].join(' ')}`];
   });
 }
 

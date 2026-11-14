@@ -594,6 +594,20 @@ describe('the parts of the writer\'s answer and of the verifiers\' notes (R2 to 
     inOrder(partly, [`- Choice its verifier left to the author: ${otherChoice} Settled as: The helper guards the null too. Choices settled by: keeping the fix to the part inside the change.`, `- Choice its verifier left to the author: ${choice} Settled as: not settled by deep-review`]);
   });
 
+  it('gives one settlement of several verifiers\' choices as its item, with each choice an item nested under it, in the record of a fix and beside a finding left as is (PD9 of the settled choice)', () => {
+    const both = { ...settled, for: ['RIPPLE-1', 'SWEEP-2'] };
+    const nested = [
+      '- Settled as: Parse keeps returning null on an empty file. Choices settled by: what the repository states. Source: The documentation of parse says that an empty file gives null.',
+      `  - Choice its verifier left to the author: ${choice}`,
+      `  - Choice its verifier left to the author: ${otherChoice}`,
+    ].join('\n');
+    const fix = formOf(withDecision(withTwoChoices(run().fold()), 'RIPPLE-1', { settled: [both] })).comments[0]!.body;
+    includes(fix, `- Grounds: Parse reads the null on an empty input, at lines 4 and 7.\n${nested}\n\n</details>`);
+    const left = leftOf(formOf(withDecision(withTwoChoices(run([leftIntended, decisions[1]]).fold()), 'RIPPLE-1', { settled: [both] })).body);
+    includes(left, `\n\n${nested}\n\n`);
+    excludes(left, `${choice} Choice its verifier left to the author`);
+  });
+
   it('keeps, when it cuts the findings left as is, those whose verifier named a choice, a merged member\'s among them, and gives the others their count (R4, PD9 of the settled choice)', () => {
     // Grounds longer than a decider gives, so that the body overflows by the finding a cut takes.
     const state = withDecision(withVerdict(run([leftIntended, decisions[1]]).fold(), 'RIPPLE-1', { authorChoice: choice }), 'SWEEP-1', { grounds: 'g'.repeat(maxPostedLength) });
