@@ -193,6 +193,18 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
     assert.equal(section(left.body, '### The major findings'), '### The major findings\n\nNo major finding asks for a fix or a question.\n');
   });
 
+  it('gives a question with no writer\'s action the option it recommends as the decider\'s recorded words, in an area line and a minor row, as an older answer has none (R8 of the review in the writer\'s words)', () => {
+    // An answer of version 1 to 3 is adapted with no action for a question.
+    const older = (): RecordedAnswer => {
+      const said = writerAnswer();
+      return { ...said, findings: [{ ...(said.findings[0] as WrittenFinding), action: null, fix: null, ask: null }] };
+    };
+    const major = formOf(run([askDecision('RIPPLE-1', false), decisions[1]]).fold(), older());
+    includes(section(major.body, '### The major findings'), `- **[Finding 1](${blob(head, 'src/a.ts', '4')}).** parse() reads the null before any guard. Verdict: CONFIRMED. Decision: ask the author. Recommended option: 2. In the words of deep-review's decider: Accept it and return an empty result.\n`);
+    const minor = formOf(run([decisions[0], askDecision('SWEEP-1', false)]).fold(), { ...older(), findings: [writerAnswer().findings[0]!, { ...(older().findings[0] as WrittenFinding), id: 'SWEEP-1', title: 'An empty input has no defined meaning' }] });
+    includes(section(minor.body, '### The minor findings'), '| [Finding 2](#finding-2) | An empty input has no defined meaning | not given | PLAUSIBLE, unverified | In the words of deep-review\'s decider: Accept it and return an empty result. Recommended option: 2. |');
+  });
+
   it('gives in full a finding that acts and has no line in the diff, with its anchor and its facts, and links it by the anchor', () => {
     includes(body, '<a id="finding-2"></a>\n\n### Finding 2\n\nIn the words of deep-review\'s ranking: extract the helper\n\nSeverity: minor. Verdict: PLAUSIBLE, unverified. Decision: ask the author. Its line: no place in the repository.');
     const outside = formOf(run().fold(), writerAnswer(), filesWith('@@ -1,1 +1,1 @@\n-a\n+b'));
@@ -213,7 +225,7 @@ describe('the body of the review (R1 to R8 of the review in the writer\'s words)
       '',
       '| # | Finding | Reaches | Verdict | What deep-review would do |',
       '|---|---|---|---|---|',
-      '| [Finding 2](#finding-2) | In the words of deep-review\'s ranking: extract the helper | not given | PLAUSIBLE, unverified | Recommended option: 2. |',
+      '| [Finding 2](#finding-2) | In the words of deep-review\'s ranking: extract the helper | not given | PLAUSIBLE, unverified | In the words of deep-review\'s decider: Accept it and return an empty result. Recommended option: 2. |',
       '',
       '</details>',
       '',

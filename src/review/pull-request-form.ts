@@ -323,11 +323,14 @@ function titleText(view: FormView, finding: FindingView, say: Speaker): string {
 /** The heading of a finding's block, its comment or its text in full: the label and its number, then its title. */
 const findingHeading = (view: FormView, finding: FindingView, say: Speaker): string[] => [`**${view.words.findingLabel} ${String(finding.finding.number)}**`, '', titleLine(view, finding, say)];
 
-/** What deep-review would do about a finding that acts, as one text: the writer's `action`, or the first sentence of the decided approach as the decider's recorded words; for a question with no writer's text, none. */
+/** What deep-review would do about a finding that acts, as one text: the writer's `action`, or, as the decider's recorded words (R8 of the review in the writer's words), the first sentence of the decided approach of a fix or of the option a question recommends; none for a finding that does neither. */
 function actionText(view: FormView, finding: FindingView, say: Speaker): string | null {
   const action = finding.written?.action ?? null;
   if (action !== null) return sentenceText(say.prose(action));
-  return finding.decision?.decision === 'fix' ? recordedWords(view, 'decider', say.sentence(firstSentence(finding.decision.fix.approach))) : null;
+  if (finding.decision?.decision === 'fix') return recordedWords(view, 'decider', say.sentence(firstSentence(finding.decision.fix.approach)));
+  const { question } = finding;
+  const recommended = question?.options.find((option) => option.number === question.choice);
+  return recommended === undefined ? null : recordedWords(view, 'decider', say.sentence(firstSentence(recommended.option)));
 }
 
 /** The facts of a question that stand beside its finding wherever it is listed: the option recommended, and the answer or the option that stands until one. */
