@@ -9,7 +9,7 @@
 import type { ScopeState } from '../checkpoint/events.ts';
 import { changeReadingOf, type ExplanationVersion, type ReviewState } from '../checkpoint/review-fold.ts';
 import { blobsRaw, treeEntries, type TreeEntry } from '../scope/git.ts';
-import type { Account, AnyWriterOutput, Area, CitedLines, ConditionSentence, Conclusion, Core, FindingExplanation, FindingExplanationV4, LeftLine, RefutedLine, WriterAsk, WriterFix } from './explanation.ts';
+import type { Account, AnyWriterOutput, Area, CitedLines, ConditionSentence, Conclusion, Core, FindingExplanation, FindingExplanationV4, LeftLine, RefutedLine, UnexplainedFinding, WriterAsk, WriterFix } from './explanation.ts';
 import { idsIn } from './finding-names.ts';
 import { counted } from './markdown.ts';
 import type { CitedSide, WriterOutputV4 } from './schemas.ts';
@@ -417,6 +417,28 @@ function checkAccount(account: Account): string[] {
 type FindingEntry = AnyWriterOutput['findings'][number];
 
 /**
+ * The entries an answer of any version gives for one finding, checked as
+ * every version holds them: one entry, explained or unexplained and not
+ * both, and the reason of an unexplained one said with no verdict. Gives
+ * the checked part when that settles the finding, refused or unexplained,
+ * and otherwise the explanation of the lone entry, which the checks of its
+ * version hold to the rest.
+ */
+function singleEntry<E>(id: string, entries: readonly { readonly explanation: E | null; readonly unexplained: string | null }[]): { readonly settled: CheckedPart<UnexplainedFinding> } | { readonly explanation: E } {
+  const refused = (failure: string) => ({ settled: { value: null, failures: [failure] } });
+  if (entries.length === 0) return refused(`the answer does not explain ${id}`);
+  if (entries.length > 1) return refused(`the answer explains ${id} ${String(entries.length)} times`);
+  const { explanation, unexplained } = entries[0]!;
+  if (explanation === null && unexplained === null) return refused(`${id} has neither an explanation nor the reason it is unexplained`);
+  if (explanation !== null && unexplained !== null) return refused(`${id} has both an explanation and the reason it is unexplained`);
+  if (unexplained !== null) {
+    const failures = [...(blank(unexplained) ? [`the reason ${id} is unexplained is empty`] : []), ...verdictFailures(`the reason ${id} is unexplained`, [unexplained])];
+    return { settled: { value: { id, unexplained: true, reason: unexplained }, failures } };
+  }
+  return { explanation: explanation! };
+}
+
+/**
  * The explanation of one finding checked, from the entries the answer
  * gives for its id: one entry, explained or unexplained and not both; and
  * for an explanation, its texts, at least one case, the lines of each, no
@@ -430,19 +452,12 @@ type FindingEntry = AnyWriterOutput['findings'][number];
  * and the check of a minor finding, whose comment posts none of them.
  */
 function checkFinding(id: string, entries: readonly FindingEntry[], lineCount: AnswerCheckInput['lineCount'], major: boolean | null): CheckedPart<FindingExplanation> {
-  const refused = (failure: string): CheckedPart<FindingExplanation> => ({ value: null, failures: [failure] });
-  if (entries.length === 0) return refused(`the answer does not explain ${id}`);
-  if (entries.length > 1) return refused(`the answer explains ${id} ${String(entries.length)} times`);
-  const { explanation, unexplained } = entries[0]!;
-  if (explanation === null && unexplained === null) return refused(`${id} has neither an explanation nor the reason it is unexplained`);
-  if (explanation !== null && unexplained !== null) return refused(`${id} has both an explanation and the reason it is unexplained`);
-  if (unexplained !== null) {
-    const failures = [...(blank(unexplained) ? [`the reason ${id} is unexplained is empty`] : []), ...verdictFailures(`the reason ${id} is unexplained`, [unexplained])];
-    return { value: { id, unexplained: true, reason: unexplained }, failures };
-  }
-  const { title, problem, cases, diagram, decision } = explanation!;
-  const checked = 'checked' in explanation! ? explanation.checked : null;
-  const kind = 'kind' in explanation! ? explanation.kind : null;
+  const entry = singleEntry<NonNullable<FindingEntry['explanation']>>(id, entries);
+  if ('settled' in entry) return entry.settled;
+  const { explanation } = entry;
+  const { title, problem, cases, diagram, decision } = explanation;
+  const checked = 'checked' in explanation ? explanation.checked : null;
+  const kind = 'kind' in explanation ? explanation.kind : null;
   const checkedDecision = major === null ? decision : '';
   // A minor finding's comment posts its title and problem alone, so its cases, diagram and check, posted nowhere, cannot drop it.
   const posted = major !== false;
@@ -789,17 +804,9 @@ type FindingEntryV4 = WriterOutputV4['findings'][number];
  * the verdict of the ledger (TD8 of the review in the writer's words).
  */
 function checkFindingV4(id: string, entries: readonly FindingEntryV4[], lineCount: AnswerCheckInput['lineCount'], major: boolean, facts: DecisionFacts): CheckedPart<FindingExplanationV4> {
-  const refused = (failure: string): CheckedPart<FindingExplanationV4> => ({ value: null, failures: [failure] });
-  if (entries.length === 0) return refused(`the answer does not explain ${id}`);
-  if (entries.length > 1) return refused(`the answer explains ${id} ${String(entries.length)} times`);
-  const { explanation, unexplained } = entries[0]!;
-  if (explanation === null && unexplained === null) return refused(`${id} has neither an explanation nor the reason it is unexplained`);
-  if (explanation !== null && unexplained !== null) return refused(`${id} has both an explanation and the reason it is unexplained`);
-  if (unexplained !== null) {
-    const failures = [...(blank(unexplained) ? [`the reason ${id} is unexplained is empty`] : []), ...verdictFailures(`the reason ${id} is unexplained`, [unexplained])];
-    return { value: { id, unexplained: true, reason: unexplained }, failures };
-  }
-  const { title, problem, cases, diagram, checked, kind, action, unconfirmed, fix, ask } = explanation!;
+  const entry = singleEntry(id, entries);
+  if ('settled' in entry) return entry.settled;
+  const { title, problem, cases, diagram, checked, kind, action, unconfirmed, fix, ask } = entry.explanation;
   // A minor finding's comment posts no case, diagram or check of its own, so those cannot drop it, as in version 2.
   const posted = major;
   const postedCases = posted ? cases : [];
