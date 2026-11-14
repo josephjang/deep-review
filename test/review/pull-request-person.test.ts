@@ -120,4 +120,17 @@ describe('the coverage the floor states', () => {
     includes(continued, '### What this review did not examine\n\n- No check ran in this review. The fix pass that followed runs the repository\'s checks');
     excludes(continued, 'Checks run in this review: none.');
   });
+
+  it('counts in its notice a comment posted with its facts alone, under the label the notice under the heading gives it (R6, R7)', () => {
+    // Finding 1 on its line, its text padded so its comment keeps its facts alone; finding 2's question, in the body, padded so that only the floor fits.
+    const state = run().fold();
+    const padded: RunState = { ...state, review: { ...state.review!, decisions: state.review!.decisions!.map((decision) => (decision.id === 'SWEEP-1' && decision.decision === 'ask' ? { ...decision, ask: { ...decision.ask, question: `Should parse accept an empty input? ${'w'.repeat(70_000)}` } } : decision)) } };
+    const said = writerAnswer();
+    const fix = said.findings[0] as WrittenFinding;
+    const form = renderedOf(padded, { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(70_000)}` }, said.findings[1]!] });
+    assert.equal(stepsOf(form).at(-1), 'floor');
+    assert.deepEqual(form.leftOut.comments, [{ finding: 'RIPPLE-1', piece: 'text' }]);
+    includes(form.body, 'Comments with their facts alone: 1. Command that prints a finding: `deep-review report --run run-1 --finding <n>`.');
+    excludes(form.body, 'Comments without their recorded decision');
+  });
 });
