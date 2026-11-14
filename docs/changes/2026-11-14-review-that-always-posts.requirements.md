@@ -8,7 +8,7 @@ deep-review reviews a change with a series of model workers and records each ans
 
 GitHub takes a body and a comment up to a fixed size. What a review holds has no bound. Today a body that is too long is cut in a fixed order of whole sections, and when it is still too long, or when one comment is, `publish` refuses and posts nothing. The first run that met this is the review of #135 ([#136](https://github.com/josephjang/deep-review/issues/136)): 37 minutes and 30.84 USD of review, of which nothing reached the pull request, while nothing in the run waited on a person and most of what did not fit was the folded record of decisions on minor findings.
 
-After this change every review is posted. A text that does not fit is left out, one piece at a time, in an order that follows what the text is worth to the reader, and the review says what it left out and how to read it. A review that fits today is posted exactly as today.
+After this change every review is posted. A text that does not fit is left out, one piece at a time, in an order that follows what the text is worth to the reader, and the review says what it left out and how to read it. A review that fits with nothing cut is posted exactly as today.
 
 The illustration below is the review of #135, before and after. The sizes are those measured on that run. What the new form leaves out is an estimate from those sizes, not the output of a run.
 
@@ -53,13 +53,13 @@ The **floor** is the smallest body the form posts: the counts of the run, what w
 
 ### No part of the review has a bound, and some parts are never cut
 
-Five decisions are each sound and cannot hold together under a fixed limit. The evidence of a finding that asks a person to act is never cut ([R12 of the review on the pull request](2026-11-01-review-on-the-pull-request.requirements.md#r12-the-review-fits)). A finding with no line in the diff goes in the body in full ([R10 of the same](2026-11-01-review-on-the-pull-request.requirements.md#r10-a-comment-on-its-line-for-each-fix-and-each-question)). A cut keeps each finding left as is whose verifier named a choice ([R4 of the settled choice](2026-11-06-choice-settled-on-the-record.requirements.md#r4-the-form-places-each-finding-by-its-decision-alone)). No text of the writer is held to a length (TD7 of the review in the writer's words). And the record of a decision stands beside the writer's text of it ([R4 of the review in the writer's words](2026-11-12-review-in-the-writers-words.requirements.md#r4-what-an-answer-applies-and-each-choice-a-verifier-named-is-shown-as-recorded)).
+Five decisions are each sound and cannot hold together under a fixed limit. The evidence of a finding that asks a person to act is never cut ([R12 of the review on the pull request](2026-11-01-review-on-the-pull-request.requirements.md#r12-the-review-fits)). A finding with no line in the diff goes in the body ([R10 of the same](2026-11-01-review-on-the-pull-request.requirements.md#r10-a-comment-on-its-line-for-each-fix-and-each-question)), in full ([R9](2026-11-01-review-on-the-pull-request.requirements.md#r9-the-body-is-the-brief-for-a-reader-of-the-pull-request)). A cut keeps each finding left as is whose verifier named a choice ([R4 of the settled choice](2026-11-06-choice-settled-on-the-record.requirements.md#r4-the-form-places-each-finding-by-its-decision-alone)). No text of the writer is held to a length (TD7 of the review in the writer's words). And the record of a decision stands beside the writer's text of it ([R4 of the review in the writer's words](2026-11-12-review-in-the-writers-words.requirements.md#r4-what-an-answer-applies-and-each-choice-a-verifier-named-is-shown-as-recorded)).
 
 In the review of #135 the text that no cut takes is 54,916 characters after every cut, 76% of the body and 92% of the limit by itself: 38,138 in 11 findings in full, and 16,778 in 8 of the 12 findings left as is. The run did what the design says. [RK10 of the review in the writer's words](2026-11-12-review-in-the-writers-words.requirements.md#rk10-a-body-that-no-cut-can-fit) names the case and leaves it to a later change, which is this one.
 
 ### What a finding costs the body follows GitHub's diff, not the finding
 
-A minor fix with a comment on its line costs the body one row of a table, about 420 characters. The same fix with no line costs about 3,470. Nine of the eleven findings in full of #135 are in `src/review/pull-request-form.ts`, the file the change rewrote most, and GitHub gave no diff of it. The run had room for 7 findings in full and held 11.
+A minor fix with a comment on its line costs the body one row of a table, about 420 characters. The same fix with no line costs about 3,470. Nine of the eleven findings in full of #135 are in `src/review/pull-request-form.ts`, a file that the change rewrote, and GitHub gave no diff of it. The run had room for 7 findings in full and held 11.
 
 ### The cuts take whole sections in a fixed order that does not follow what a text is worth
 
@@ -69,7 +69,7 @@ The first cut takes the refuted candidates, the only text of the review that say
 
 A body over the limit after every cut, or one comment over it, refuses the review, and what fits is not posted either: not the core of the change, not what the review did not examine, not the 12 comments of #135, each under 5,300 characters. The run is finished and paid for when `publish` refuses it, and no setting changes what the form posts. In a workflow the checkpoint goes away with the job, so the review is lost.
 
-A large change is where this is likeliest. The file with the most changes draws the most findings, and it was the file with no diff. A large change is also where a person is least likely to read the diff, which is the premise of the vision note.
+A large change is where this is likeliest. A file that a change rewrites draws many findings, and here it was a file with no diff. A large change is also where a person is least likely to read the diff, which is the premise of the vision note.
 
 ## Goals
 
@@ -79,7 +79,7 @@ Every run of a pull request ends with its review on the pull request. When the r
 
 ### NG1: A shorter review
 
-#109 and #115 ask for a review that reads shorter and for a lighter first screen. The same causes are behind both problems, but a review that reads long and a review that is not posted are different problems. This change leaves a review that fits exactly as it is, and shortens one that does not fit only as far as the limit.
+#109 and #115 ask for a review that reads shorter and for a lighter first screen. The same causes are behind both problems, but a review that reads long and a review that is not posted are different problems. This change leaves a review that fits with nothing cut exactly as it is, and shortens one that does not fit only as far as the limit.
 
 ### NG2: Where a finding is placed
 
@@ -87,7 +87,7 @@ Which finding gets a comment on its line and which goes in the body stays as it 
 
 ### NG3: The limit itself
 
-The limit stays 60,000 characters. GitHub's exact limit is not known: the form's margin rests on the 65,536 that people report, and a Korean body of 49,007 characters, 76,325 bytes in UTF-8, was posted, so the limit is not counted in bytes.
+The limit stays 60,000 characters. GitHub's exact limit is not known: the form's margin rests on the 65,536 that people report, and a Korean body of 49,007 characters, 76,324 bytes in UTF-8, was posted, so the limit is not counted in bytes.
 
 ### NG4: The evidence on the reader's side
 
@@ -105,22 +105,24 @@ No worker changes and no model is called. The writer's answer, its checks and it
 
 ### R1: Every run posts its review
 
-`publish` refuses no review for its size. A body that is too long is posted with pieces left out (R2 to R6), and a comment that is too long is posted with pieces left out (R7). The refusals that say something true of the pull request stay: a head that moved, a pull request that is closed, a run that is not finished, and a refusal by GitHub itself, which the ledger records as today.
+`publish` refuses no review for its size. A body that is too long is posted with pieces left out (R2 to R6), and a comment that is too long is posted with pieces left out (R7). The refusals that say something true of the pull request stay: a head that moved, a pull request that is closed, a run that is not finished, and a refusal by GitHub itself, which the ledger records as today. One bound that is not of size stays too: the record of a publication holds at most 2,000 places, so a run with more ranked findings than that cannot be published, before this change or after it. The largest run on record has 36.
 
 ### R2: What does not fit leaves in one order
 
 When the body is over the limit, the form leaves out pieces in the order of the table below, from the first row down, and stops at the first piece after which the body fits. So what is left out is always the first pieces of the order and nothing after them, and no piece is left out while a piece before it in the order stays.
 
+This order takes the place of three earlier items. [R12 of the review on the pull request](2026-11-01-review-on-the-pull-request.requirements.md#r12-the-review-fits) no longer holds where it refuses a body or a comment and where it says what a cut never takes. TD5 of the review that reads as a report, the order of the four cuts, gives way to the table below. And R9 and R10 of the review on the pull request, which give a finding with no line in full, hold until the body is over the limit. R4 names a fourth.
+
 The order follows what a text is worth to the reader, which is what the reader loses when the text is gone from the pull request (PD1). A text that repeats another goes first, since the reader loses nothing. Then goes a text that a reader opens to check a statement that stays. Then the statements go, those that change nothing in the code before those that would. Within one kind, the text of a lighter finding goes before that of a heavier one (R3). A finding that waits on a person loses nothing until every other finding has lost all it can (R4).
 
 | Order | What leaves | What stands in its place | Why it leaves here |
 |---|---|---|---|
-| 1 | The table of the minor findings | Their counts and a notice | Each row repeats the comment or the text in full of its finding |
-| 2 | The record of the decision of each finding left as is, then of each fix | The command that prints the finding | The writer's text of the decision stays, its sentence in view and the fix in full in its fold; the record says the same decision again in the decider's words, with the grounds that a reader opens to check it |
+| 1 | The table of the minor findings | Their counts and a notice | Each row repeats the comment or the text in full of its finding, but for whether the finding reaches what a user sees, which the counts keep as totals |
+| 2 | The record of the decision of each finding left as is, then of each finding in full | The command that prints the finding | The writer's text of the decision stays: the reason of a finding left as is, and for a fix its sentence in view and the fix in full in its fold. The record says the same decision again in the decider's words, with the grounds that a reader opens to check it |
 | 3 | The refuted candidates | Their count and a notice | Nothing acts on them, and a verifier refuted each |
 | 4 | Each finding left as is | Their count as not listed | The finding is verified, and nothing in the code changes for it |
-| 5 | The diagrams of the areas and of the core of the change | A notice | Each helps to read a text that stays |
-| 6 | The text in full of each fix with no line in the diff | The line of the finding, which a major one already has in its area, and the command that prints it | The line still says what deep-review would do |
+| 5 | The diagrams of the areas and of the core of the change | A notice | Each draws what a text beside it says of the change or of a fix, so it outlasts the statements about what changes nothing in the code (rows 3 and 4) and goes before the text of any fix |
+| 6 | The text of each finding in full | The line of the finding, which a major one already has in its area, and the command that prints it | The line still says what deep-review would do |
 | 7 | The line of each such minor finding | Their count as not listed | The counts of the summary still hold the finding; a major finding keeps its line in its area until the floor |
 | 8 | The record of the decision of each finding that waits on a person | As row 2 | The question, the departure or the choice that no one settled stays in view; the record is the decider's words behind it |
 | 9 | Each finding left as is that waits on a person | Their count as not listed | Its choice is one that no one settled, on a finding that changes nothing in the code |
@@ -130,7 +132,7 @@ Rows 2, 4, 6, 7, 8 and 9 take one finding at a time (R3). Rows 1, 3 and 5 take t
 
 ### R3: One finding at a time, the lightest first
 
-A row that names "each finding" takes the piece of one finding, checks whether the body fits, and goes on to the next finding only when it does not. It takes the last-ranked finding first, so a critical finding keeps its text after a minor one has lost it, and a `CONFIRMED` finding after a `PLAUSIBLE` one of its severity. Row 2 takes the records of all the findings left as is, the last-ranked first, before the record of any fix, since a fix would change the code and a finding left as is changes nothing. A fix on a `PLAUSIBLE` verdict stays named in what needs a person, as a reason to look, whatever its text loses.
+A row that names "each finding" takes the piece of one finding, checks whether the body fits, and goes on to the next finding only when it does not. It takes the last-ranked finding first, so a critical finding keeps its text after a minor one has lost it, and a `CONFIRMED` finding after a `PLAUSIBLE` one of its severity. Row 2 takes the records of all the findings left as is, the last-ranked first, before the record of any finding in full, since a finding in full acts on the code and a finding left as is changes nothing. A fix on a `PLAUSIBLE` verdict stays named in what needs a person, as a reason to look, whatever its text loses.
 
 ### R4: What waits on a person is the last to go
 
@@ -140,23 +142,23 @@ This replaces the rule that a cut keeps every finding left as is whose verifier 
 
 ### R5: The floor always fits
 
-When the body is still over the limit after row 9, the form posts the floor. The floor holds, in this order: the heading with what the run reviewed; the notice of R6; the table of the findings by severity and by decision, with the fixed notice of what happens next; how many questions and how many fixes against a written rule wait on a person, with the command that answers one; each condition that holds, as its label; each kind of gap in what the review did not examine that the run has, as its label; the number of fixes on a `PLAUSIBLE` verdict; the tables of the verdicts and of how the findings were checked; the last line with the engine, the run and the commits; and the marker of the publication, by which a publication that a stop left open is found again. It holds no text of a worker and no text whose length a run decides, so it fits for every run. The comments on their lines are posted with the floor as with any other body.
+When the body is still over the limit after row 9, the form posts the floor. The floor holds, in this order: the heading with what the run reviewed; the notice of R6; the table of the findings by severity and by decision, with the fixed notice of what happens next; how many questions, how many fixes against a written rule and how many choices that no one settled wait on a person, with the command that answers a question or a fix; each condition that holds, as its label; each kind of gap in what the review did not examine that the run has, as its label; the number of fixes on a `PLAUSIBLE` verdict; the tables of the verdicts and of how the findings were checked; the last line with the engine, the run and the commits; and the marker of the publication, by which a publication that a stop left open is found again. It holds no text of a worker and no text whose length a run decides, so it fits for every run. The comments on their lines are posted with the floor as with any other body.
 
 ### R6: The review says what it left out
 
-A review with any piece left out says so in one notice directly under its heading: that it does not hold all of the run, which kinds of piece it left out with the count of each, and where each is read. The notice says what is true of each kind. A record is printed by `deep-review report --run <id> --finding <n>`, which gives the finding with its evidence and its decision in the words of the workers that recorded them. A text of the writer that was left out, which is a diagram, the text of a finding, a line of a refuted candidate or the reason of a finding left as is, is in the writer's answer in the checkpoint, on the machine that holds the run, and no command prints it; for such a piece the notice names the command that prints the finding in the report's words, and says that the writer's text is not in it. Where a piece stood, the form puts what the table of R2 names: a notice for a section, the command that prints the finding for a record or a text in full, a count for findings that are not listed. A link to a finding that is no longer in the body is shown as the finding's number with no link. A review with nothing left out has no such notice and no such text.
+A review with any piece left out says so in one notice directly under its heading: that it does not hold all of the run, which kinds of piece it left out with the count of each, and where each is read. The notice says what is true of each kind. A record is printed by `deep-review report --run <id> --finding <n>`, which gives the finding with its evidence and its decision in the words of the workers that recorded them. A text of the writer that was left out, which is a diagram, the text of a finding, a line of a refuted candidate or the reason of a finding left as is, is in the writer's answer in the checkpoint, on the machine that holds the run, and no command prints it; for such a piece the notice names the command that prints the finding in the report's words, and says that the writer's text is not in it. Where a piece stood, the form puts what the table of R2 names: a notice for a section, the command that prints the finding for a record or a text in full, a count for findings that are not listed. A link to a finding that is no longer in the body is shown as the finding's number with no link. A whole piece, such as the table of the minor findings, is named in the notice. A kind that is taken one finding at a time is counted, each finding once, at the last state the order left it in: a finding that lost its record and then its text counts among the texts. A review with nothing left out has no such notice and no such text.
 
 ### R7: A comment that does not fit is posted with less
 
-A comment over the limit is posted without the record of its decision. When it is still over the limit, it is posted with the finding's number, its facts, the notice that its text did not fit, and the command that prints the finding, which always fits. A comment is fitted alone: its size changes neither the body nor another comment, and the notice of R6 in the body counts each comment that lost a piece. The last form of a comment is the one place outside the floor where the review can hide what a person must decide, the options of a question or the rule of a departure on its line. Such a finding stays listed in what needs a person, with the command that answers it.
+A comment over the limit is posted without the record of its decision. When it is still over the limit, it is posted with the finding's number, its facts, the notice that its text did not fit, and the command that prints the finding, which always fits. A comment is fitted alone, before the body: what one comment loses changes no other comment, and the body is fitted after, with the count of the comments that lost a piece in its notice of R6. The last form of a comment is the one place outside the floor where the review can hide what a person must decide, the options of a question or the rule of a departure on its line. Such a finding stays listed in what needs a person, with the command that answers it.
 
 ### R8: A review that fits is unchanged
 
-A review whose body and comments fit with nothing left out is posted exactly as today, character for character.
+A review whose body and comments fit with nothing left out is posted exactly as today, character for character. A review that fits today only after a cut is posted in the new order.
 
 ### R9: The dry run and the log name what is left out
 
-`publish --dry-run` prints what the form left out of the body, in the order it left, with the number of each finding it took a piece from, and the same for each comment, in place of today's line of cuts. `publish` logs the same when it posts. The posted text is frozen in the evidence store before the post, as today, and it holds the notices of R6, so the record of a publication says what was left out with no new event.
+`publish --dry-run` prints what the form left out of the body, in the order it left, with the number of each finding it took a piece from, and the same for each comment, in place of today's line of cuts, and for a review with nothing left out the line says that nothing was. `publish` logs the same when it posts a review that left something out. The posted text is frozen in the evidence store before the post, as today, and it holds the notices of R6, so the record of a publication says what was left out with no new event.
 
 ### R10: The README
 
