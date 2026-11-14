@@ -147,7 +147,7 @@ export interface FindingView {
   readonly departure: BriefDeparture | null;
   /** The writer's text of the finding, null when it gave none that passed: its sentence of what deep-review would do, and its fix or its question. */
   readonly written: RecordedFinding | null;
-  /** The writer's kind of a minor finding (R13); null lists it with the code. */
+  /** The writer's kind of a minor finding (R13); null when the writer gave none, which the minor findings count apart. */
   readonly kind: FindingKind | null;
   /** The writer's title and reason for a finding left as is, or null. */
   readonly left: LeftLine | null;
