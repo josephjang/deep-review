@@ -3,8 +3,9 @@ import { describe, it } from 'node:test';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
 import type { Core, WriterAnswer } from '../../src/review/explanation.ts';
+import { publicationMarker } from '../../src/review/markers.ts';
 import type { PullRequestForm } from '../../src/review/pull-request-form.ts';
-import { longFindingHistory, paddedAnswer, pullRequestRun as run, renderedOf, sampleBoundaries, stepsOf, writerAnswer, type WrittenFinding } from '../helpers/pull-request-review.ts';
+import { filesWith, longFindingHistory, paddedAnswer, pullRequestRun as run, renderedOf, sampleBoundaries, stepsOf, writerAnswer, type WrittenFinding } from '../helpers/pull-request-review.ts';
 
 const includes = (text: string, part: string): void => assert.ok(text.includes(part), `${JSON.stringify(part)} in:\n${text}`);
 const excludes = (text: string, part: string): void => assert.ok(!text.includes(part), `no ${JSON.stringify(part)} in:\n${text}`);
@@ -115,3 +116,88 @@ describe('the record of a finding that waits on a person', () => {
     excludes(fix, 'Grounds: Parse reads the null');
   });
 });
+
+// R1, R5, TD6, TD7 of the review that always posts.
+describe('the floor', () => {
+  const choice = 'Whether parse should throw or return null on an empty file.';
+  const named = withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice });
+  /** Findings 1, a fix against a written rule, and 2, a question, both waiting, finding 1's text padded with `pad` characters. */
+  const answerOf = (pad: number): WriterAnswer => {
+    const said = writerAnswer();
+    const fix = said.findings[0] as WrittenFinding;
+    return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }, said.findings[1]!] };
+  };
+  const floorOf = (files: PullRequestFile[] = noLine): PullRequestForm => {
+    const form = renderedOf(named, answerOf(70_000), files);
+    assert.equal(form.kind, 'rendered');
+    return form as PullRequestForm;
+  };
+
+  it('is posted when nothing less fits, as the last step of the order, under the limit and with the marker of the publication last', () => {
+    const form = floorOf();
+    assert.deepEqual(stepsOf(form), ['minor-table', 'refuted', 'record:SWEEP-1', 'record:RIPPLE-1', 'floor']);
+    assert.ok(form.body.length < 60_000, String(form.body.length));
+    assert.equal(form.body.split('\n').at(-1), `<!-- ${publicationMarker('run-1', 1)} -->`);
+  });
+
+  it('holds, in order, what the run reviewed, the notice in its form for the floor, the counts, what waits on a person with the command, the kinds of gap, the tables and the last line, and no text of a worker', () => {
+    const { body } = floorOf();
+    const at = (part: string): number => {
+      const index = body.indexOf(part);
+      assert.ok(index !== -1, `${JSON.stringify(part)} in:\n${body}`);
+      return index;
+    };
+    const parts = [
+      '## deep-review\'s review of this pull request\n\nHead: `22222222`. Merge base: `11111111`. Files changed: 1. After the review: no file changed.',
+      'The text of this review does not fit the length GitHub takes, so it gives only the counts of the run, what waits on a person, and where to read the rest.',
+      'Command that prints a finding: `deep-review report --run run-1 --finding <n>`.',
+      '### Summary\n\n| Findings | Critical | Major | Minor | To fix | To ask the author | Left as is |',
+      'Command that applies the fixes: `deep-review review --pr 42 --fix`.',
+      '### What needs a person\n\nQuestions not answered: 1. Fixes against a written rule not accepted or rejected: 1. Choices its verifiers left to the author that deep-review did not settle: 1.',
+      'Command: `deep-review answer --run run-1 --finding <n>`. With one of: `--option <k>`, `--accept`, `--reject`.',
+      '### What this review did not examine\n\n',
+      '### How far to trust this review\n\n| Verdict | Findings |',
+      'Reviewed by: deep-review 0.0.0+dev. Runtime: claude. Run: `run-1`. Commits: 11111111..22222222.',
+    ];
+    const indexes = parts.map(at);
+    assert.deepEqual([...indexes].sort((a, b) => a - b), indexes);
+    for (const text of ['q'.repeat(50), 'parse() reads the null', 'An empty input still crashes', choice, 'Should parse accept an empty input?', 'Models:', 'A model wrote the sentences']) excludes(body, text);
+  });
+
+  it('gives the notice that a model wrote the sentences only when a comment posted with it holds a text of the writer', () => {
+    // Finding 1 on its line, with the writer's text in its comment; finding 2's question, in the body, padded so that only the floor fits.
+    const state: RunState = { ...named, review: { ...named.review!, decisions: named.review!.decisions!.map((decision) => (decision.id === 'SWEEP-1' && decision.decision === 'ask' ? { ...decision, ask: { ...decision.ask, question: `Should parse accept an empty input? ${'w'.repeat(70_000)}` } } : decision)) } };
+    const form = renderedOf(state, writerAnswer(), filesWith()) as PullRequestForm;
+    assert.equal(stepsOf(form).at(-1), 'floor');
+    includes(form.body, 'A model wrote the sentences');
+    includes(form.comments[0]!.body, 'parse() reads the null before any guard.');
+  });
+
+  it('fits for a run far larger than any on record: 2,000 findings with long texts in the body, the most a publication records, each comment beside it', () => {
+    const state = largeRun(1997, 2000);
+    const files: PullRequestFile[] = [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: `@@ -100,0 +100,100 @@\n${Array.from({ length: 100 }, (_, index) => `+added ${String(100 + index)}`).join('\n')}` }];
+    const form = renderedOf(state, writerAnswer(), files) as PullRequestForm;
+    assert.equal(form.kind, 'rendered');
+    assert.equal(form.places.length, 2000);
+    assert.equal(stepsOf(form).at(-1), 'floor');
+    assert.ok(form.body.length < 60_000, String(form.body.length));
+    includes(form.body, '| 2000 |');
+    assert.equal(form.comments.length, 67, 'the fixes on lines 100 to 199, each with its comment');
+    for (const comment of form.comments) assert.ok(comment.body.length <= 60_000);
+  });
+});
+
+/**
+ * The run of `longFindingHistory` with `count` more findings at lines 100
+ * and after of `src/a.ts`, each with texts of `length` characters: a major
+ * fix, a minor fix and a finding left as is in turn.
+ */
+function largeRun(count: number, length: number): RunState {
+  const state = longFindingHistory().fold();
+  const review = state.review!;
+  const ids = Array.from({ length: count }, (_, index) => `BULK-${String(index + 1)}`);
+  const candidates = { ...review.candidates, ...Object.fromEntries(ids.map((id, index) => [id, { ...review.candidates['RIPPLE-1']!, id, line: 100 + index, rawLine: 100 + index, summary: 's'.repeat(length), detail: 'd'.repeat(length) }])) };
+  const ranking = [...review.ranking!, ...ids.map((id, index) => ({ id, members: [], severity: index % 3 === 1 ? 'minor' as const : 'major' as const, summary: 'x'.repeat(length), reason: 'r' }))];
+  const decisions = [...review.decisions!, ...ids.map((id, index) => (index % 3 === 2 ? { ...review.decisions![1]!, id, grounds: 'g'.repeat(length) } : { ...review.decisions![0]!, id, grounds: 'g'.repeat(length), fix: { approach: 'a'.repeat(length), rejected: [] } }))];
+  return { ...state, review: { ...review, candidates, ranking, decisions } as RunState['review'] };
+}

@@ -143,3 +143,27 @@ export function takes(leftOut: LeftOut, finding: string, piece: FindingPiece): b
   const known = leftOut.findings.get(finding);
   return known !== undefined && pieceRank[known] >= pieceRank[piece];
 }
+
+/**
+ * The shortest prefix of an order of `steps` steps after which a text
+ * fits `limit` (TD3, OQ1 of the review that always posts), or `steps`
+ * when none fits before the last. `size(prefix)` renders the text with
+ * the first `prefix` steps taken, and `most(step)` bounds from above how
+ * much step `step` can shorten it. A prefix that the bounds prove still
+ * over the limit is not rendered: from a text of size S at prefix p, each
+ * prefix q for which S, less the bounds of the steps from p to q, is over
+ * the limit holds a text over the limit too. So the prefix is the one a
+ * render after each step finds, with fewer renders.
+ */
+export function firstFit(steps: number, size: (prefix: number) => number, most: (step: number) => number, limit: number): number {
+  let prefix = 0;
+  let over = size(0) - limit;
+  while (over > 0 && prefix < steps) {
+    do {
+      over -= most(prefix);
+      prefix += 1;
+    } while (over > 0 && prefix < steps);
+    over = size(prefix) - limit;
+  }
+  return prefix;
+}

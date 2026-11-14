@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { fitOrder, leftOutOf, takes, waitsOnPerson, type FitStep } from '../../src/review/pull-request-fit.ts';
+import { firstFit, fitOrder, leftOutOf, takes, waitsOnPerson, type FitStep } from '../../src/review/pull-request-fit.ts';
 import type { FindingView, FormView } from '../../src/review/pull-request-view.ts';
 
 /** What a built finding is: its number, severity, decision, place and what it waits on. */
@@ -139,5 +139,46 @@ describe('what a prefix of the order leaves out', () => {
     assert.equal(takes(atText, 'F1', 'text'), false);
     assert.equal(takes(atText, 'F9', 'record'), false);
     assert.equal(leftOutOf(steps).floor, true);
+  });
+});
+
+describe('the first prefix that fits (TD3, OQ1)', () => {
+  /** The prefix a render after each step finds: the first whose size is at most the limit, else the last. */
+  const naive = (sizes: readonly number[], limit: number): number => {
+    const found = sizes.findIndex((size) => size <= limit);
+    return found === -1 ? sizes.length - 1 : found;
+  };
+
+  it('finds the prefix a render after each step finds, for sizes that rise and fall, with every true bound of what a step shortens', () => {
+    let seed = 7;
+    const random = (below: number): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % below;
+    };
+    for (let trial = 0; trial < 2000; trial += 1) {
+      const steps = 1 + random(30);
+      const sizes = [200 + random(400)];
+      for (let step = 0; step < steps; step += 1) sizes.push(Math.max(0, sizes.at(-1)! - random(60) + (random(4) === 0 ? random(40) : 0)));
+      // A bound at least what each step shortens, often more, and unbounded for some steps.
+      const bounds = sizes.slice(1).map((size, step) => (random(6) === 0 ? Infinity : Math.max(0, sizes[step]! - size) + random(3) * random(50)));
+      const limit = random(600);
+      const rendered: number[] = [];
+      const found = firstFit(steps, (prefix) => {
+        rendered.push(prefix);
+        return sizes[prefix]!;
+      }, (step) => bounds[step]!, limit);
+      assert.equal(found, naive(sizes, limit), JSON.stringify({ sizes, bounds, limit }));
+      assert.equal(rendered.at(-1), found, 'the prefix found is the last one rendered, so its render is the text posted');
+      assert.deepEqual([...rendered].sort((a, b) => a - b), rendered, 'each prefix is rendered once, in order');
+    }
+  });
+
+  it('renders each prefix when no bound is known, and none past the first that fits', () => {
+    const rendered: number[] = [];
+    assert.equal(firstFit(4, (prefix) => {
+      rendered.push(prefix);
+      return [10, 9, 8, 5, 1][prefix]!;
+    }, () => Infinity, 6), 3);
+    assert.deepEqual(rendered, [0, 1, 2, 3]);
   });
 });
