@@ -47,10 +47,7 @@ const pieceRank: Readonly<Record<FindingPiece, number>> = { record: 1, text: 2, 
  * the decision answers.
  */
 export function waitsOnPerson(finding: FindingView): boolean {
-  if (openQuestion(finding) || openDeparture(finding)) return true;
-  const { decision } = finding;
-  if (decision?.decision === 'ask') return false;
-  return choicesShown(finding.choices, decision?.settled ?? []).some((shown) => shown.settled === null);
+  return openQuestion(finding) || openDeparture(finding) || unsettledChoices(finding) > 0;
 }
 
 /** The choices that no one settled of a finding: each verifier's choice that no settled choice of its decision answers, none for a question. */
