@@ -324,6 +324,42 @@ function recordedFailures(failures: readonly string[], extra: readonly string[])
   return (all.length === 0 ? ['no answer of the writer gave it'] : all).slice(0, maxPartFailures).map((failure) => truncated(failure, recordedTextLengthV1));
 }
 
+/** Whether an answer passed a part: it gave the part, and the part passed every check. */
+const passes = <T>(part: CheckedPart<T> | null): part is CheckedPart<T> => part !== null && part.value !== null && part.failures.length === 0;
+
+/** Take a part from the first answer that passed it, or drop it: `null` stands for an answer that does not give the part. */
+type PickPart = <T>(parts: readonly (CheckedPart<T> | null)[], drop: (failures: string[]) => DroppedPart) => T | null;
+
+/**
+ * What a merge of a unit's answers, of any version, takes each part with,
+ * and the parts it dropped, in the order it picked them: a part is taken
+ * from the first answer that passed it, and a part that no answer passed
+ * is dropped with the failures of the latest answer that gave it and
+ * `extra`.
+ */
+function merger(extra: readonly string[]): { readonly pick: PickPart; readonly dropped: readonly DroppedPart[] } {
+  const dropped: DroppedPart[] = [];
+  const pick: PickPart = <T>(parts: readonly (CheckedPart<T> | null)[], drop: (failures: string[]) => DroppedPart): T | null => {
+    const given = parts.filter((part): part is CheckedPart<T> => part !== null);
+    const passed = given.find(passes);
+    if (passed !== undefined) return passed.value;
+    dropped.push(drop(recordedFailures(given.at(-1)?.failures ?? [], extra)));
+    return null;
+  };
+  return { pick, dropped };
+}
+
+/**
+ * The answers the summary and the areas are taken from, as one answer
+ * since the summary names the areas: the first that passed both, else the
+ * first that passed the areas, whose summary then failed; with none, every
+ * answer, so the summary is taken as any other part.
+ */
+function summarySource<A extends { readonly conclusion: CheckedPart<unknown> | null; readonly areas: CheckedPart<unknown> | null }>(answers: readonly A[]): readonly A[] {
+  const from = answers.find((answer) => passes(answer.conclusion) && passes(answer.areas)) ?? answers.find((answer) => passes(answer.areas));
+  return from === undefined ? answers : [from];
+}
+
 /** What the merge of a unit's answers keeps, and each part none of them passed. */
 export interface MergedAnswer {
   readonly answer: OlderAnswer;
@@ -352,18 +388,8 @@ export interface MergedAnswer {
  * other part, since the body then posts no summary.
  */
 export function mergeAnswers(version: Exclude<ExplanationVersion, 4>, answers: readonly CheckedAnswer[], ids: readonly string[], extra: readonly string[] = []): MergedAnswer {
-  const dropped: DroppedPart[] = [];
-  const passes = <T>(part: CheckedPart<T> | null): part is CheckedPart<T> => part !== null && part.value !== null && part.failures.length === 0;
-  const pick = <T>(parts: readonly (CheckedPart<T> | null)[], drop: (failures: string[]) => DroppedPart): T | null => {
-    const given = parts.filter((part): part is CheckedPart<T> => part !== null);
-    const passed = given.find(passes);
-    if (passed !== undefined) return passed.value;
-    dropped.push(drop(recordedFailures(given.at(-1)?.failures ?? [], extra)));
-    return null;
-  };
-  const paired = answers.find((answer) => passes(answer.conclusion) && passes(answer.areas));
-  const areasFrom = version === 1 ? undefined : (paired ?? answers.find((answer) => passes(answer.areas)));
-  const pairedSource = areasFrom === undefined ? answers : [areasFrom];
+  const { pick, dropped } = merger(extra);
+  const pairedSource = version === 1 ? answers : summarySource(answers);
   const conclusion = pick(pairedSource.map((answer) => answer.conclusion), (failures) => ({ part: 'conclusion', failures }));
   const account = version === 1 ? pick(answers.map((answer) => answer.account), (failures) => ({ part: 'account', failures })) : null;
   const areas = version === 1 ? null : pick(pairedSource.map((answer) => answer.areas), (failures) => ({ part: 'areas', failures }));
@@ -395,17 +421,8 @@ export interface MergedAnswerV4 {
  * answer, since it names them.
  */
 export function mergeAnswersV4(answers: readonly CheckedAnswerV4[], ids: readonly string[], extra: readonly string[] = []): MergedAnswerV4 {
-  const dropped: DroppedPart[] = [];
-  const passes = <T>(part: CheckedPart<T>): boolean => part.value !== null && part.failures.length === 0;
-  const pick = <T>(parts: readonly CheckedPart<T>[], drop: (failures: string[]) => DroppedPart): T | null => {
-    const passed = parts.find(passes);
-    if (passed !== undefined) return passed.value;
-    dropped.push(drop(recordedFailures(parts.at(-1)?.failures ?? [], extra)));
-    return null;
-  };
-  const paired = answers.find((answer) => passes(answer.conclusion) && passes(answer.areas));
-  const areasFrom = paired ?? answers.find((answer) => passes(answer.areas));
-  const pairedSource = areasFrom === undefined ? answers : [areasFrom];
+  const { pick, dropped } = merger(extra);
+  const pairedSource = summarySource(answers);
   const summary = pick(pairedSource.map((answer) => answer.conclusion), (failures) => ({ part: 'conclusion', failures }));
   const areas = pick(pairedSource.map((answer) => answer.areas), (failures) => ({ part: 'areas', failures }));
   const core = pick(answers.map((answer) => answer.core), (failures) => ({ part: 'core', failures }));
