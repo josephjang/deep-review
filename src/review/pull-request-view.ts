@@ -368,6 +368,9 @@ export const inFull = (view: FindingView): boolean => acts(view) && view.placeme
 /** The major findings that ask a person to act, in rank order. */
 export const majorActing = (view: FormView): FindingView[] => view.findings.filter((finding) => !isMinor(finding) && acts(finding));
 
+/** Whether the areas of the body show a diagram: a major finding acts, so the areas are given, and the writer drew one for an area (R4; R2 row 5 of the review that always posts). */
+export const areaDiagramsShown = (view: FormView): boolean => majorActing(view).length > 0 && view.areas !== null && view.areas.some((area) => area.diagram !== null);
+
 /** The minor findings that ask a person to act: those that reach what a user sees first, then the others, each in rank order (R13). */
 export const minorActing = (view: FormView): FindingView[] => {
   const minor = view.findings.filter((finding) => isMinor(finding) && acts(finding));
