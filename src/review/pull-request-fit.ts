@@ -13,9 +13,10 @@ import { choicesShown } from './state.ts';
 /**
  * One piece of the body to leave out (R2): the table of the minor
  * findings; the record of the decision of a finding; the refuted
- * candidates; a finding left as is; the diagrams of the areas and of the
- * core of the change; the text of a finding in full; the line of a minor
- * finding in full; or everything but the floor.
+ * candidates; a finding left as is; every diagram of the body, those of
+ * the areas, of the core of the change and of each finding in full; the
+ * text of a finding in full; the line of a minor finding in full; or
+ * everything but the floor.
  */
 export type FitStep =
   | { readonly piece: 'minor-table' }

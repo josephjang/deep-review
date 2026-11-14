@@ -250,6 +250,7 @@ export interface PullRequestWords {
   readonly textsLeftNotice: string;
   readonly linesLeftNotice: string;
   readonly coreDiagramCut: string;
+  readonly findingDiagramCut: string;
   readonly floorNotice: string;
   readonly commentFactsNotice: string;
   readonly waitingLabels: Readonly<Record<'questions' | 'departures' | 'choices', string>>;
@@ -579,6 +580,7 @@ const english: PullRequestWords = {
   textsLeftNotice: 'To fit the length GitHub takes, the text of each of these findings is left out; the report of the run prints each, in the words of the workers that recorded it.',
   linesLeftNotice: 'To fit the length GitHub takes, these findings are not listed here; the report of the run prints each.',
   coreDiagramCut: 'To fit the length GitHub takes, the diagram of the change is left out; the writer\'s answer on the machine that holds the run keeps it.',
+  findingDiagramCut: 'To fit the length GitHub takes, the diagram of this finding is left out; the writer\'s answer on the machine that holds the run keeps it.',
   floorNotice: 'The text of this review does not fit the length GitHub takes, so it gives only the counts of the run, what waits on a person, and where to read the rest. The report of the run, on the machine of the person who ran the review, prints each finding with its evidence and its decision in the words of the workers that recorded them, with the command below; the texts of deep-review\'s writer are kept in its answer on that machine, and no command prints them.',
   waitingLabels: { questions: 'Questions not answered', departures: 'Fixes against a written rule not accepted or rejected', choices: 'Choices its verifiers left to the author that deep-review did not settle' },
   commentFactsNotice: 'The text of this finding does not fit the length GitHub takes for a comment; the report of the run prints the finding, in the words of the workers that recorded it, and deep-review\'s writer\'s text of it is kept in its answer on the machine of the person who ran the review.',
@@ -879,6 +881,7 @@ const korean: PullRequestWords = {
   textsLeftNotice: 'GitHub가 받는 길이에 맞추느라 아래 지적 사항들의 본문은 뺐습니다. 실행 보고서가 각각을 기록한 작업자의 원문으로 보여 줍니다.',
   linesLeftNotice: 'GitHub가 받는 길이에 맞추느라 이 지적 사항들은 여기에 적지 않았습니다. 실행 보고서가 각각을 보여 줍니다.',
   coreDiagramCut: 'GitHub가 받는 길이에 맞추느라 변경의 다이어그램은 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
+  findingDiagramCut: 'GitHub가 받는 길이에 맞추느라 이 지적 사항의 다이어그램은 뺐습니다. 설명 모델의 원래 답은 실행 기록이 있는 컴퓨터에 남아 있습니다.',
   floorNotice: '이 리뷰의 글은 GitHub가 받는 길이에 들어가지 않아, 실행의 수, 사람을 기다리는 것, 나머지를 읽을 곳만 적었습니다. 이 리뷰를 실행한 사람의 컴퓨터에 있는 실행 보고서는 아래 명령으로 각 지적 사항을 근거와 함께, 결정은 그것을 기록한 작업자의 원문으로 보여 줍니다. deep-review 설명 모델이 쓴 글은 그 컴퓨터에 있는 설명 모델의 답에 남아 있으며, 이를 보여 주는 명령은 없습니다.',
   waitingLabels: { questions: '답하지 않은 질문', departures: '받아들이거나 거부하지 않은 명문화된 규칙과 다른 수정', choices: '검증자가 작성자에게 남겼고 deep-review가 정하지 않은 선택' },
   commentFactsNotice: '이 지적 사항의 본문은 GitHub가 댓글로 받는 길이에 들어가지 않습니다. 실행 보고서가 이 지적 사항을 기록한 작업자의 원문으로 보여 주며, deep-review 설명 모델이 쓴 본문은 이 리뷰를 실행한 사람의 컴퓨터에 있는 설명 모델의 답에 남아 있습니다.',
