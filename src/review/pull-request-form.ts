@@ -1101,15 +1101,27 @@ function postsWriterText(view: Page): boolean {
     || (view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0)
     || (!view.leftOut.refuted && view.refuted.some((line) => line.claim !== null || line.why !== null))
     || leftAsIs(view).some((finding) => finding.left !== null && !takes(view.leftOut, finding.finding.id, 'left'))
-    || view.findings.some((finding) => acts(finding) && postsFindingText(view, finding));
+    || view.findings.some((finding) => postsNeedsText(finding) || (acts(finding) && postsFindingText(view, finding)));
 }
 
 /**
- * Whether the review posts a text of the writer for a finding that acts:
- * its comment, unless only its facts fit; its block in full, which gives
- * the writer's reason for leaving it unexplained; or, once its text is
- * left out, its line, which holds the writer's title and sentence of
- * what deep-review would do, until its line leaves too.
+ * Whether the item of a finding under "What needs a person" posts a text
+ * of the writer: a question's sentence of what it asks, or a departure's
+ * text. `needsSection` lists every question and departure, wherever the
+ * finding is and whatever the order took from it, until the floor.
+ */
+const postsNeedsText = (finding: FindingView): boolean => (finding.decision?.decision === 'ask' && finding.question !== null && (finding.written?.action ?? null) !== null)
+  || (finding.departure !== null && (finding.written?.fix?.departure ?? null) !== null);
+
+/**
+ * Whether the review posts a text of the writer in the block, the line or
+ * the comment of a finding that acts: its comment, unless only its facts
+ * fit; its block in full, which gives the writer's reason for leaving it
+ * unexplained; or, once its text is left out, its line, which holds the
+ * writer's title and sentence of what deep-review would do, until its
+ * line leaves too. Its item under "What needs a person", which stays
+ * after its line leaves, is counted apart, by `postsNeedsText` in
+ * `postsWriterText`.
  */
 function postsFindingText(view: Page, finding: FindingView): boolean {
   const { id } = finding.finding;
