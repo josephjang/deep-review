@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import type { RunState } from '../../src/checkpoint/fold.ts';
 import type { PullRequestFile } from '../../src/github/pull-request.ts';
-import type { RecordedAnswer, RecordedFinding } from '../../src/review/explanation.ts';
+import type { WriterAnswer, RecordedFinding } from '../../src/review/explanation.ts';
 import { pullRequestForm, type FormRefusal, type PullRequestForm } from '../../src/review/pull-request-form.ts';
 import { placeFindings, type PullRequestFormInput } from '../../src/review/pull-request-view.ts';
 import type { MachineContext } from '../../src/review/public-text.ts';
@@ -69,13 +69,13 @@ export type WrittenFinding = { -readonly [K in keyof RecordedFinding]: RecordedF
 
 /** A recorded answer as a test edits it: every part of the one shape, each list a mutable array. */
 export interface WholeAnswer {
-  core: RecordedAnswer['core'];
-  conditions: RecordedAnswer['conditions'];
+  core: WriterAnswer['core'];
+  conditions: WriterAnswer['conditions'];
   summary: string | null;
-  areas: RecordedAnswer['areas'];
+  areas: WriterAnswer['areas'];
   findings: (WrittenFinding | { id: string; unexplained: true; reason: string })[];
-  left: RecordedAnswer['left'];
-  refuted: RecordedAnswer['refuted'];
+  left: WriterAnswer['left'];
+  refuted: WriterAnswer['refuted'];
   notExamined: string | null;
 }
 
@@ -123,7 +123,7 @@ export const longFindingHistory = (): History => rewritten(pullRequestRun([decis
 });
 
 /** The writer's answer with a long area diagram, or none, and the fix's problem padded with `pad` characters. */
-export const paddedAnswer = (pad: number, diagram = true): RecordedAnswer => {
+export const paddedAnswer = (pad: number, diagram = true): WriterAnswer => {
   const said = answerWithArea(diagram ? `flowchart LR\n  A["${'d'.repeat(1000)}"]` : null);
   const fix = said.findings[0] as WrittenFinding;
   return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }] };
@@ -133,7 +133,7 @@ export const paddedAnswer = (pad: number, diagram = true): RecordedAnswer => {
 export const machine: MachineContext = { worktree: '/w', checkpoint: '/w/.git/deep-review-checkpoint', gitCommon: '/w/.git', engine: '/opt/deep-review', scratch: [], environment: {}, home: '/home/me', rootEntries: ['home', 'opt', 'tmp', 'w'] };
 
 /** The form of a state against the files given, refused or not. */
-export function renderedOf(state: RunState, answer: RecordedAnswer | null = writerAnswer(), files: PullRequestFile[] = filesWith(), change: Partial<PullRequestFormInput> = {}): PullRequestForm | FormRefusal {
+export function renderedOf(state: RunState, answer: WriterAnswer | null = writerAnswer(), files: PullRequestFile[] = filesWith(), change: Partial<PullRequestFormInput> = {}): PullRequestForm | FormRefusal {
   return pullRequestForm({ state, fixPass: 'to-come', answer, places: placeFindings(state.review!, files), machine, engine: '0.0.0+dev', serial: 1, ...change });
 }
 

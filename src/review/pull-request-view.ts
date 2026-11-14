@@ -14,7 +14,7 @@ import { repositoryLocation, type CandidateState, type ReviewState } from '../ch
 import type { NewLineKind, PullRequestFile } from '../github/pull-request.ts';
 import { newLinesOf } from '../github/pull-request.ts';
 import { briefOf, type Brief, type BriefChange, type BriefDeparture, type BriefFinding, type BriefQuestion } from './brief.ts';
-import { reviewLanguage, type ConditionSentence, type Core, type LeftLine, type RecordedAnswer as WriterAnswer, type RecordedFinding } from './explanation.ts';
+import { reviewLanguage, type ConditionSentence, type Core, type LeftLine, type WriterAnswer, type RecordedFinding } from './explanation.ts';
 import type { NamedId } from './finding-names.ts';
 import type { MachineContext } from './public-text.ts';
 import { pullRequestWords, type PullRequestWords } from './pull-request-words.ts';
