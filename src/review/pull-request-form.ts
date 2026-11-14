@@ -23,7 +23,7 @@
  * not, is a refusal with its size and parts, before anything is recorded.
  */
 import { standingAnswers } from '../checkpoint/answer-state.ts';
-import type { PullRequestFacts, RecordedDecision } from '../checkpoint/events.ts';
+import type { PullRequestFacts } from '../checkpoint/events.ts';
 import { repositoryLocation } from '../checkpoint/review-fold.ts';
 import { firstSentence, type FindingStatus, type GapFacts } from './brief.ts';
 import { diagramFailures, resolveCommitSource } from './explanation-checks.ts';
@@ -595,16 +595,9 @@ function coreSection(view: FormView, say: Speaker): Section {
   return { part: 'core', lines: blocks([words.coreHeading], [`${words.recorded.triage}: **${say.words(title)}**`], [paragraphText(say.words(change.what))], ...reason, [words.coreWhoseTriage]) };
 }
 
-/** The counts of the findings by decision, as decided, which no answer changes. */
-function decidedCounts(view: FormView): { readonly fix: number; readonly ask: number; readonly leave: number } {
-  const decided = (decision: RecordedDecision['decision']): number => view.findings.filter((finding) => finding.decision?.decision === decision).length;
-  return { fix: decided('fix'), ask: decided('ask'), leave: view.findings.filter((finding) => !acts(finding)).length };
-}
-
 /** The summary (R1): the writer's summary, the table of the findings by severity and by decision, and the notice of what happens next with the command that applies the fixes. */
 function summarySection(view: FormView, say: Speaker): Section {
-  const { words, counts } = view;
-  const decided = decidedCounts(view);
+  const { words, counts, decided } = view;
   const labels = words.counts;
   const table = factsTable([labels.findings, labels.critical, labels.major, labels.minor, labels.fix, labels.ask, labels.leave], [[counts.findings, counts.critical, counts.major - counts.critical, counts.minor, decided.fix, decided.ask, decided.leave].map(String)]);
   const acting = decided.fix + decided.ask > 0;
