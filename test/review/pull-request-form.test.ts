@@ -866,7 +866,8 @@ describe('the fit of the review (R2, R6 of the review that always posts)', () =>
   const limit = 60_000;
   /** Each state the padded text of finding 1 reaches: one step of the order more at a time, up to its text. */
   const expected = [[], ['minor-table'], ['minor-table', 'record:RIPPLE-1'], ['minor-table', 'record:RIPPLE-1', 'refuted'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1', 'diagrams'], ['minor-table', 'record:RIPPLE-1', 'refuted', 'left:SWEEP-1', 'diagrams', 'text:RIPPLE-1']];
-  const withoutDiagrams = expected.filter((steps) => !steps.includes('diagrams'));
+  /** The same states for an answer that draws no diagram, which the order gives no diagrams step. */
+  const withoutDiagrams = expected.filter((steps) => !steps.includes('diagrams')).concat([expected.at(-1)!.filter((step) => step !== 'diagrams')]);
   const markedLast = (form: PullRequestForm): void => {
     assert.equal(lastLine(form.body), `<!-- ${publicationMarker('run-1', 1)} -->`);
     for (const comment of form.comments) assert.equal(lastLine(comment.body), `<!-- ${findingMarker('run-1', comment.finding)} -->`);
@@ -907,6 +908,11 @@ describe('the fit of the review (R2, R6 of the review that always posts)', () =>
     includes(at(forms, 'left:SWEEP-1'), '### The findings left as is\n\nNot listed here: 1. To fit the length GitHub takes, these findings left as is are not listed here; the report of the run holds each.');
     includes(at(forms, 'diagrams'), 'To fit the length GitHub takes, the diagrams of the areas are left out; the writer\'s answer on the machine that holds the run keeps them.');
     excludes(at(forms, 'diagrams'), `A["${'d'.repeat(1000)}"]`);
+    // The diagram of a finding in full leaves at the same step, with a notice of its own in its block (R2 row 5).
+    includes(at(forms, 'left:SWEEP-1'), 'Caller->>parse: an empty file');
+    excludes(at(forms, 'diagrams'), 'Caller->>parse: an empty file');
+    includes(at(forms, 'diagrams'), '### Finding 1');
+    includes(at(forms, 'diagrams'), 'To fit the length GitHub takes, the diagram of this finding is left out; the writer\'s answer on the machine that holds the run keeps it.');
     const text = at(forms, 'text:RIPPLE-1');
     excludes(text, '### Finding 1');
     excludes(text, '(#finding-1)');
@@ -926,6 +932,12 @@ describe('the fit of the review (R2, R6 of the review that always posts)', () =>
     inOrder(at(forms, 'minor-table'), ['## deep-review\'s review', 'Merge base:', notice, 'Left out whole: the table of the minor findings. Command that prints a finding: `deep-review report --run run-1 --finding <n>`.', '### What this change does']);
     includes(at(forms, 'record:RIPPLE-1'), 'Left out whole: the table of the minor findings. Findings whose recorded decision is left out: 1. Command');
     includes(at(forms, 'text:RIPPLE-1'), 'Left out whole: the table of the minor findings, the refuted candidates, the diagrams. Findings left as is that are not listed: 1. Findings whose text is left out: 1. Command');
+  });
+
+  it('names the diagrams in a dry run by what is true of every run, here one whose core has none (R9)', () => {
+    const form = samples(true).forms.find((sampled) => stepsOf(sampled).at(-1) === 'diagrams')!;
+    const lines = dryRunLines(state, [], form, []);
+    assert.ok(lines.includes('Left out of the body to fit: the table of the minor findings, then the recorded decision of finding 1, then the refuted candidates, then finding 3, left as is, then the diagrams.'), lines.join('\n'));
   });
 
   it('makes and names no step that takes nothing from the body', () => {

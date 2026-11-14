@@ -122,11 +122,11 @@ export const longFindingHistory = (): History => rewritten(pullRequestRun([decis
   return undefined;
 });
 
-/** The writer's answer with a long area diagram, or none, and the fix's problem padded with `pad` characters. */
+/** The writer's answer with a long area diagram and the fix's own diagram, or neither, and the fix's problem padded with `pad` characters. */
 export const paddedAnswer = (pad: number, diagram = true): WriterAnswer => {
   const said = answerWithArea(diagram ? `flowchart LR\n  A["${'d'.repeat(1000)}"]` : null);
   const fix = said.findings[0] as WrittenFinding;
-  return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }] };
+  return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}`, diagram: diagram ? fix.diagram : null }] };
 };
 
 /** The machine of the histories here, whose worktree is `/w`. */
@@ -137,12 +137,8 @@ export function renderedOf(state: RunState, answer: WriterAnswer | null = writer
   return pullRequestForm({ state, fixPass: 'to-come', answer, places: placeFindings(state.review!, files), machine, engine: '0.0.0+dev', serial: 1, ...change });
 }
 
-/** The same, checked to be rendered. */
-export function formOf(...args: Parameters<typeof renderedOf>): PullRequestForm {
-  const form = renderedOf(...args);
-  assert.equal(form.kind, 'rendered', JSON.stringify(form));
-  return form as PullRequestForm;
-}
+/** The same, under the name the tests written when a form could be refused still call it by. */
+export const formOf = renderedOf;
 
 /** The steps the form left out of a body, each as `piece` or `piece:finding`, for expectations a reader can check against the order. */
 export const stepsOf = (form: PullRequestForm): string[] => form.leftOut.body.map((step) => ('finding' in step ? `${step.piece}:${step.finding}` : step.piece));
@@ -160,21 +156,19 @@ export function sampleBoundaries(render: (pad: number) => PullRequestForm, limit
   let pad = 1;
   let seed = render(pad);
   return expected.slice(0, -1).map((steps, index) => {
-    assert.equal(seed.kind, 'rendered', `a successful seed for state ${String(index)}`);
-    const atPad = pad + limit - (seed as PullRequestForm).body.length;
+    const atPad = pad + limit - seed.body.length;
     assert.ok(atPad > pad, 'each fixed state makes positive progress toward its limit');
     assert.ok(atPad <= limit, 'padding stays within the fixed public cap');
     const below = render(atPad - 1);
     const at = render(atPad);
     const above = render(atPad + 1);
-    for (const form of [below, at, above]) assert.equal(form.kind, 'rendered', JSON.stringify(form));
-    assert.equal((below as PullRequestForm).body.length, limit - 1);
-    assert.equal((at as PullRequestForm).body.length, limit);
-    assert.deepEqual(stepsOf(below as PullRequestForm), steps);
-    assert.deepEqual(stepsOf(at as PullRequestForm), steps);
-    assert.deepEqual(stepsOf(above as PullRequestForm), expected[index + 1]);
+    assert.equal(below.body.length, limit - 1);
+    assert.equal(at.body.length, limit);
+    assert.deepEqual(stepsOf(below), steps);
+    assert.deepEqual(stepsOf(at), steps);
+    assert.deepEqual(stepsOf(above), expected[index + 1]);
     pad = atPad + 1;
     seed = above;
-    return { below: below as PullRequestForm, at: at as PullRequestForm, above: above as PullRequestForm };
+    return { below, at, above };
   });
 }

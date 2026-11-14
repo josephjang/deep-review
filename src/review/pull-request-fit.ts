@@ -7,15 +7,16 @@
  * prefix into what each section of the body reads. Pure: it renders
  * nothing.
  */
-import { acts, inFull, isMinor, leftAsIs, majorActing, minorActing, type FindingView, type FormView } from './pull-request-view.ts';
+import { diagramsShown, hasRecord, inFull, isMinor, leftAsIs, minorActing, openDeparture, openQuestion, type FindingView, type FormView } from './pull-request-view.ts';
 import { choicesShown } from './state.ts';
 
 /**
  * One piece of the body to leave out (R2): the table of the minor
  * findings; the record of the decision of a finding; the refuted
- * candidates; a finding left as is; the diagrams of the areas and of the
- * core of the change; the text of a finding in full; the line of a minor
- * finding in full; or everything but the floor.
+ * candidates; a finding left as is; every diagram of the body, those of
+ * the areas, of the core of the change and of each finding in full; the
+ * text of a finding in full; the line of a minor finding in full; or
+ * everything but the floor.
  */
 export type FitStep =
   | { readonly piece: 'minor-table' }
@@ -26,6 +27,12 @@ export type FitStep =
   | { readonly piece: 'text'; readonly finding: string }
   | { readonly piece: 'line'; readonly finding: string }
   | { readonly piece: 'floor' };
+
+/** A step that takes a piece of the body whole, of no one finding. */
+export type WholeStep = Exclude<FitStep, { readonly finding: string }>;
+
+/** The pieces of the body that leave whole, the floor among them. */
+export type WholeStepPiece = WholeStep['piece'];
 
 /** The pieces that one finding loses, from the least to the most. */
 export type FindingPiece = 'record' | 'text' | 'line' | 'left';
@@ -41,11 +48,7 @@ const pieceRank: Readonly<Record<FindingPiece, number>> = { record: 1, text: 2, 
  * the decision answers.
  */
 export function waitsOnPerson(finding: FindingView): boolean {
-  const { question, departure, decision } = finding;
-  if (question !== null && (question.answer === null || question.answer.option === null)) return true;
-  if (departure !== null && departure.review === null) return true;
-  if (decision?.decision === 'ask') return false;
-  return choicesShown(finding.choices, decision?.settled ?? []).some((shown) => shown.settled === null);
+  return openQuestion(finding) || openDeparture(finding) || unsettledChoices(finding) > 0;
 }
 
 /** The choices that no one settled of a finding: each verifier's choice that no settled choice of its decision answers, none for a question. */
@@ -53,15 +56,6 @@ export function unsettledChoices(finding: FindingView): number {
   if (finding.decision?.decision === 'ask') return 0;
   return choicesShown(finding.choices, finding.decision?.settled ?? []).filter((shown) => shown.settled === null).length;
 }
-
-/**
- * Whether the block of a finding holds the fold of a record ("The order as
- * data" of the design): a finding with a decision, and, for one left as is,
- * with the writer's text of it. A finding left as is with no writer's text
- * shows its choices in view with no fold, and a finding with no decision
- * shows nothing, so neither has a record to take.
- */
-const hasRecord = (finding: FindingView): boolean => finding.decision !== null && (acts(finding) || finding.left !== null);
 
 /** The findings in the order a row takes them: the last-ranked first (R3, TD2). */
 const lastRankedFirst = (findings: readonly FindingView[]): FindingView[] => [...findings].sort((a, b) => b.finding.number - a.finding.number);
@@ -75,10 +69,8 @@ const lastRankedFirst = (findings: readonly FindingView[]): FindingView[] => [..
 export function fitOrder(view: FormView): FitStep[] {
   const left = lastRankedFirst(leftAsIs(view));
   const full = lastRankedFirst(view.findings.filter(inFull));
-  const waiting = (finding: FindingView): boolean => waitsOnPerson(finding);
-  const free = (finding: FindingView): boolean => !waiting(finding);
+  const free = (finding: FindingView): boolean => !waitsOnPerson(finding);
   const record = (finding: FindingView): FitStep => ({ piece: 'record', finding: finding.finding.id });
-  const diagrams = (majorActing(view).length > 0 && view.areas !== null && view.areas.some((area) => area.diagram !== null)) || (view.core.kind === 'writer' && view.core.core.diagram !== null);
   const freeFull = full.filter(free);
   return [
     ...(minorActing(view).length > 0 ? [{ piece: 'minor-table' } as const] : []),
@@ -86,11 +78,11 @@ export function fitOrder(view: FormView): FitStep[] {
     ...freeFull.filter(hasRecord).map(record),
     ...(view.refuted.length > 0 ? [{ piece: 'refuted' } as const] : []),
     ...left.filter(free).map((finding): FitStep => ({ piece: 'left', finding: finding.finding.id })),
-    ...(diagrams ? [{ piece: 'diagrams' } as const] : []),
+    ...(diagramsShown(view) ? [{ piece: 'diagrams' } as const] : []),
     ...freeFull.map((finding): FitStep => ({ piece: 'text', finding: finding.finding.id })),
     ...freeFull.filter(isMinor).map((finding): FitStep => ({ piece: 'line', finding: finding.finding.id })),
-    ...lastRankedFirst([...leftAsIs(view), ...view.findings.filter(inFull)]).filter((finding) => waiting(finding) && hasRecord(finding)).map(record),
-    ...left.filter(waiting).map((finding): FitStep => ({ piece: 'left', finding: finding.finding.id })),
+    ...lastRankedFirst([...left, ...full]).filter((finding) => waitsOnPerson(finding) && hasRecord(finding)).map(record),
+    ...left.filter(waitsOnPerson).map((finding): FitStep => ({ piece: 'left', finding: finding.finding.id })),
     { piece: 'floor' },
   ];
 }

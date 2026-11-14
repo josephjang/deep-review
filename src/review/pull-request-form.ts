@@ -38,7 +38,7 @@ import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, withoutSecrets, type MachineContext } from './public-text.ts';
 import { firstFit, fitOrder, leftOutOf, nothingLeftOut, takes, unsettledChoices, type FitStep, type LeftOut } from './pull-request-fit.ts';
 import type { DecisionValue, LeftOutKind, LineNote, PullRequestWords, RecordedSpeaker, WholePiece, WriterPart } from './pull-request-words.ts';
-import { acts, formViewOf, inFull, isMinor, leftAsIs, majorActing, minorActing, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
+import { acts, areaDiagramsShown, coreDiagramShown, findingDiagramShown, formViewOf, hasRecord, inFull, isMinor, leftAsIs, majorActing, minorActing, openDeparture, openQuestion, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
 import { shortRunId } from './runs.ts';
 import { choicesShown } from './state.ts';
 import { changeConditions, type ChangeConditionName, type FindingPlace, type PlaceReason } from './vocabulary.ts';
@@ -78,7 +78,6 @@ export interface FormLeftOut {
 
 /** The review as the form renders it: the body with its marker last, a comment for each finding on its line, each place, the count of secrets the cleaning replaced, and what was left out to fit. */
 export interface PullRequestForm {
-  readonly kind: 'rendered';
   readonly body: string;
   readonly comments: readonly FormComment[];
   readonly places: readonly RecordedPlace[];
@@ -228,23 +227,34 @@ const headUrl = (view: FormView, location: FindingLocation): string => blobUrl(v
 /** A location as a link to its line at the head, its text on one line whatever line break its path holds. */
 const locationLink = (view: FormView, location: FindingLocation): string => `[${codeSpan(inlineText(`${location.path}:${String(location.line)}`))}](${headUrl(view, location)})`;
 
+/** The forms a finding takes in a body, as `shownAs` gives them. */
+type ShownAs = 'block' | 'item' | 'line' | 'none';
+
 /**
- * Whether the body holds the anchor of a finding it places in the body
- * (R6 of the review that always posts): a finding left as is that is
- * still listed, and a finding in full whose block or item is still there,
- * which a major finding loses with its text and a minor one with its line.
+ * The form a finding takes under what is left out (R2, R6 of the review
+ * that always posts), which the link to it, the section that lists it, its
+ * line and the notice that a model wrote the sentences all read: `block`,
+ * its block with its anchor, which a finding on its line has in its
+ * comment; `item`, a minor finding in full whose text left, as an item
+ * with its anchor and its line; `line`, a major finding in full whose text
+ * left, as its line in its area with no anchor; `none`, a finding the body
+ * no longer holds, a finding left as is that a `left` step took, a minor
+ * finding whose line left, and every finding at the floor.
  */
-function anchored(view: Page, finding: FindingView): boolean {
-  if (view.leftOut.floor) return false;
+function shownAs(view: Page, finding: FindingView): ShownAs {
+  if (view.leftOut.floor) return 'none';
   const { id } = finding.finding;
-  if (!acts(finding)) return !takes(view.leftOut, id, 'left');
-  return isMinor(finding) ? !takes(view.leftOut, id, 'line') : !takes(view.leftOut, id, 'text');
+  if (!acts(finding)) return takes(view.leftOut, id, 'left') ? 'none' : 'block';
+  if (!takes(view.leftOut, id, 'text')) return 'block';
+  if (!isMinor(finding)) return 'line';
+  return takes(view.leftOut, id, 'line') ? 'none' : 'item';
 }
 
-/** Where the body links a finding (R14, TD4): the line its comment sits on, at the head, or its block in the body; none for a finding the body no longer holds. */
+/** Where the body links a finding (R14, TD4): the line its comment sits on, at the head, or its block or item in the body; none for a finding whose anchor the body no longer holds. */
 const hrefOf = (view: Page, finding: FindingView): string | null => {
   if (finding.placement.place === 'line') return headUrl(view, finding.placement.location);
-  return anchored(view, finding) ? `#${findingAnchor(finding.finding.number)}` : null;
+  const shown = shownAs(view, finding);
+  return shown === 'block' || shown === 'item' ? `#${findingAnchor(finding.finding.number)}` : null;
 };
 
 /** The marks after a finding's verdict: no verifier examined it. */
@@ -443,8 +453,7 @@ function questionBlocks(view: FormView, finding: FindingView, say: Speaker): str
   const labels = [columns.number, ...(ask === null ? [words.recorded.decider] : [columns.means]), columns.cost, columns.rule, columns.edits];
   const recommendation = ask === null ? [] : [[`${words.recommendationLabel} ${sentenceText(say.prose(ask.recommendation))}`]];
   const command = factsLine([[words.commandLabel, codeSpan(answerCommand(view.state.id, finding.finding.number, '--option <k>'))]]);
-  const answered = question.answer !== null && question.answer.option !== null;
-  return [[`${words.questionLabel} ${asked}`], factsTable(labels, rows), [factsLine(questionFacts(view, finding))], ...recommendation, ...(answered ? [] : [[`${words.answerNotices[view.fixPass]} ${command}`]])];
+  return [[`${words.questionLabel} ${asked}`], factsTable(labels, rows), [factsLine(questionFacts(view, finding))], ...recommendation, ...(openQuestion(finding) ? [[`${words.answerNotices[view.fixPass]} ${command}`]] : [])];
 }
 
 /**
@@ -459,19 +468,21 @@ function questionBlocks(view: FormView, finding: FindingView, say: Speaker): str
  * each choice a verifier left to the author beside the choice that
  * settles it and its source, or that deep-review did not settle it.
  * Folded, whether it stands beside the writer's text or in for it, since
- * a block with no writer's text shows the decider's words in view.
+ * a block with no writer's text shows the decider's words in view. None
+ * for a finding with no record to fold (`hasRecord`), which the order
+ * gives no record step either.
  */
 function recordBlocks(view: Page, finding: FindingView, say: Speaker): string[] {
   const { words } = view;
+  if (!hasRecord(finding)) return [];
   const { decision, question } = finding;
-  if (decision === null) return [];
   const fixText = finding.written?.fix?.text ?? null;
   // Paragraph by paragraph, as the writer's problem is, since a text of a fix that covers several choices is long.
   const writerText = fixText === null ? [] : say.paragraphs(fixText).map((paragraph, index) => [index === 0 ? `${words.fixTextLabel} ${paragraph}` : paragraph]);
   if (takes(view.leftOut, finding.finding.id, 'record')) {
     // The record leaves the fold, which keeps the writer's text of a fix alone; the command that prints the record and each choice no one settled stand after it (R2, R4, R6 of the review that always posts).
     const fold = writerText.length === 0 ? [] : details(words.fixTextSummary, ...writerText);
-    return blocks(fold, [`${words.recordLeftOut} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])}`], choiceRecord(view, finding, say, 'open'));
+    return blocks(fold, [`${words.recordLeftOut} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding.finding.number))]])}`], choiceRecord(view, finding, say, 'open'));
   }
   const recorded: string[] = [];
   if (decision.decision === 'fix') {
@@ -489,8 +500,8 @@ function recordBlocks(view: Page, finding: FindingView, say: Speaker): string[] 
   return details(words.recordSummary, notice, ...parts);
 }
 
-/** The command that prints a finding of the run from the ledger, with its evidence and its decision in the words of the workers that recorded them. */
-const reportCommand = (view: FormView, finding: FindingView): string => `deep-review report --run ${shortRunId(view.state.id)} --finding ${String(finding.finding.number)}`;
+/** The command that prints a finding of the run from the ledger, with its evidence and its decision in the words of the workers that recorded them: the finding's number, or `<n>` in its place. */
+const reportCommand = (view: FormView, finding: number | '<n>'): string => `deep-review report --run ${shortRunId(view.state.id)} --finding ${String(finding)}`;
 
 /** What deep-review would do about a finding of R5's order, each a block: its action, the steps that settled its choices and its departure for a fix, or its question, then the decision as recorded. */
 function decisionBlocks(view: Page, finding: FindingView, say: Speaker): string[][] {
@@ -537,10 +548,17 @@ interface FindingParts {
   readonly code: string[];
 }
 
-/** The parts of the block of a finding in R5's order: its facts, the mark of one not explained, what goes wrong, its diagram for a major one, why it is not CONFIRMED, then its decision, how it was checked for a major one, and its code. */
+/**
+ * The parts of the block of a finding in R5's order: its facts, the mark
+ * of one not explained, what goes wrong, its diagram for a major one, or
+ * the notice in its place once the diagrams step took it (R2 row 5 of the
+ * review that always posts), why it is not CONFIRMED, then its decision,
+ * how it was checked for a major one, and its code.
+ */
 function findingParts(view: Page, finding: FindingView, say: Speaker): FindingParts {
   const minor = isMinor(finding);
-  const diagram = !minor && finding.written?.diagram !== null && finding.written?.diagram !== undefined ? [[say.diagram(finding.written.diagram)]] : [];
+  const drawn = findingDiagramShown(finding) ? finding.written?.diagram ?? null : null;
+  const diagram = drawn === null ? [] : view.leftOut.diagrams ? [[view.words.findingDiagramCut]] : [[say.diagram(drawn)]];
   return {
     explanation: blocks([findingFacts(view, finding)], ...unexplainedBlocks(view, finding, say), ...problemBlocks(view, finding, say), ...diagram, ...unconfirmedBlocks(view, finding, say)),
     decision: blocks(...decisionBlocks(view, finding, say)),
@@ -560,9 +578,13 @@ const traceLine = (view: FormView, finding: FindingView): string => `<sub>${fact
  * that always posts): the comment in full; over the limit, without the
  * record of its decision; still over, its facts form, which holds the
  * label and the number of the finding, its facts, the notice that its
- * text did not fit and the command that prints it, and no text of a
- * worker, so it always fits. A comment is fitted alone, so what it loses
- * changes no other comment.
+ * text did not fit and the command that prints it, then each choice its
+ * verifiers left to the author that deep-review did not settle, labeled
+ * as the verifier's, since what waits on a person stays in view (R4, R7).
+ * Those choices are the one text of a worker in the facts form, so a
+ * facts form they would carry over the limit leaves them out, and the
+ * form always fits. A comment is fitted alone, so what it loses changes
+ * no other comment.
  */
 function commentOf(view: FormView, finding: FindingView & { readonly placement: Extract<FindingPlacement, { place: 'line' }> }, cache: Map<string, Cleaned>): { readonly comment: FormComment; readonly secrets: number; readonly leftOut: CommentLeftOut['piece'] | null } {
   const { location } = finding.placement;
@@ -578,8 +600,11 @@ function commentOf(view: FormView, finding: FindingView & { readonly placement: 
   const unrecorded = render(leftOutOf([{ piece: 'record', finding: finding.finding.id }]));
   if (unrecorded.body.length <= maxPostedLength) return { comment: placed(unrecorded.body), secrets: unrecorded.secrets, leftOut: 'record' };
   const { words } = view;
-  const facts = blocks([`**${words.findingLabel} ${String(finding.finding.number)}**`], [findingFacts(view, finding)], [`${words.commentFactsNotice} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])}`], ...trace);
-  return { comment: placed(facts.join('\n')), secrets: 0, leftOut: 'text' };
+  const factsForm = (choices: readonly string[]): string => blocks([`**${words.findingLabel} ${String(finding.finding.number)}**`], [findingFacts(view, finding)], [`${words.commentFactsNotice} ${factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding.finding.number))]])}`], [...choices], ...trace).join('\n');
+  const say = speakerOf(view.input.machine, view.words, view.names, cache);
+  const open = factsForm(choiceRecord(view, finding, say, 'open'));
+  if (open.length <= maxPostedLength) return { comment: placed(open), secrets: say.secrets(), leftOut: 'text' };
+  return { comment: placed(factsForm([])), secrets: 0, leftOut: 'text' };
 }
 
 /** The view as the body renders it with a prefix of the order left out (`leftOutOf`). */
@@ -589,9 +614,8 @@ interface Page extends FormView {
   readonly commentsLeftOut: readonly CommentLeftOut[];
 }
 
-/** One section of the body, by its name. */
+/** One section of the body, as its lines; a section with none is left out of the body. */
 interface Section {
-  readonly part: string;
   readonly lines: readonly string[];
 }
 
@@ -600,7 +624,7 @@ const fixCommand = (view: FormView): string => codeSpan(`deep-review review --pr
 
 /** The heading and the facts of what the run reviewed and what followed it (R1; R6 of the review of a fix run), with the notice of a run that went on into its fix pass, then the notice of what was left out to fit (R6, PD10 of the review that always posts). */
 function headingSection(view: Page): Section {
-  return { part: 'heading', lines: blocks(...headingFacts(view), leftOutNotice(view)) };
+  return { lines: blocks(...headingFacts(view), leftOutNotice(view)) };
 }
 
 /** The heading, the facts of what the run reviewed and what followed it, and the notice of a run that went on into its fix pass, as the body and the floor open. */
@@ -619,28 +643,31 @@ function headingFacts(view: FormView): string[][] {
  */
 function leftOutNotice(view: Page): string[] {
   const { words, leftOut } = view;
-  const whole = (['minor-table', 'refuted', 'diagrams'] as const satisfies readonly WholePiece[]).filter((piece) => (piece === 'minor-table' ? leftOut.minorTable : piece === 'refuted' ? leftOut.refuted : leftOut.diagrams));
+  const wholeLeftOut: Readonly<Record<WholePiece, boolean>> = { 'minor-table': leftOut.minorTable, refuted: leftOut.refuted, diagrams: leftOut.diagrams };
+  const whole = (['minor-table', 'refuted', 'diagrams'] as const satisfies readonly WholePiece[]).filter((piece) => wholeLeftOut[piece]);
   const states = [...leftOut.findings.values()];
-  const counts: Readonly<Record<Exclude<LeftOutKind, 'whole'>, number>> = {
+  const counts: Readonly<Record<Exclude<LeftOutKind, 'whole' | 'commentRecords' | 'commentTexts'>, number>> = {
     records: states.filter((state) => state === 'record').length,
     left: states.filter((state) => state === 'left').length,
     texts: states.filter((state) => state === 'text').length,
     lines: states.filter((state) => state === 'line').length,
-    commentRecords: view.commentsLeftOut.filter((comment) => comment.piece === 'record').length,
-    commentTexts: view.commentsLeftOut.filter((comment) => comment.piece === 'text').length,
   };
-  const counted = (Object.keys(counts) as (keyof typeof counts)[]).filter((kind) => counts[kind] > 0);
+  const counted = [...(Object.keys(counts) as (keyof typeof counts)[]).filter((kind) => counts[kind] > 0).map((kind) => [words.leftOutLabels[kind], String(counts[kind])] as const), ...commentCounts(view)];
   if (whole.length === 0 && counted.length === 0) return [];
   const facts = factsLine([
     ...(whole.length === 0 ? [] : [[words.leftOutLabels.whole, valueList(whole.map((piece) => words.wholePieces[piece]))] as const]),
-    ...counted.map((kind) => [words.leftOutLabels[kind], String(counts[kind])] as const),
-    [words.reportCommandLabel, codeSpan(reportCommandOf(view))],
+    ...counted,
+    [words.reportCommandLabel, codeSpan(reportCommand(view, '<n>'))],
   ]);
   return [`${words.leftOutNotice} ${facts}`];
 }
 
-/** The command that prints a finding of the run, with the place of its number. */
-const reportCommandOf = (view: FormView): string => `deep-review report --run ${shortRunId(view.state.id)} --finding <n>`;
+/** The count of the comments that lost their record and of those that lost their text, each under its label and only when above zero, as the notice under the heading and the floor give them (R6, R7 of the review that always posts). */
+function commentCounts(view: Page): (readonly [string, string])[] {
+  const { words } = view;
+  const counts = [[words.leftOutLabels.commentRecords, 'record'], [words.leftOutLabels.commentTexts, 'text']] as const;
+  return counts.map(([label, piece]) => [label, view.commentsLeftOut.filter((comment) => comment.piece === piece).length] as const).filter(([, count]) => count > 0).map(([label, count]) => [label, String(count)] as const);
+}
 
 /**
  * The floor (R5, TD6 of the review that always posts): the body a review
@@ -652,8 +679,13 @@ const reportCommandOf = (view: FormView): string => `deep-review report --run ${
  * notice of what happens next; how many questions, fixes against a
  * written rule and choices that no one settled wait on a person, with the
  * command that answers a question or a fix; each condition that holds, as
- * its label, and the number of fixes on a PLAUSIBLE verdict; each kind of
- * gap the run has, as its label; the tables of the verdicts and of how
+ * its label, or, when none is listed, the fixed label that none holds or
+ * that none was judged, and the number of fixes on a PLAUSIBLE verdict,
+ * the labels and the number after the fixed notice that nothing waits on
+ * them and no command answers them, as the full body gives it;
+ * the fixed line that no check ran in the review, or that the fix pass
+ * runs the checks, then each kind of gap the run has, as its label, or
+ * that it has none; the tables of the verdicts and of how
  * the findings were checked, with the notice that a model wrote the
  * sentences when a comment posted with the floor holds a text of the
  * writer; the last line, with no version of the runtime and no model,
@@ -662,16 +694,20 @@ const reportCommandOf = (view: FormView): string => `deep-review report --run ${
  */
 function floorBody(view: Page): string {
   const { words } = view;
-  const comments = (['record', 'text'] as const).map((piece) => [piece === 'record' ? words.leftOutLabels.commentRecords : words.leftOutLabels.commentTexts, view.commentsLeftOut.filter((comment) => comment.piece === piece).length] as const).filter(([, count]) => count > 0);
-  const notice = `${words.floorNotice} ${factsLine([...comments.map(([label, count]) => [label, String(count)] as const), [words.reportCommandLabel, codeSpan(reportCommandOf(view))]])}`;
-  const questions = view.findings.filter((finding) => finding.question !== null && (finding.question.answer === null || finding.question.answer.option === null)).length;
-  const departures = view.findings.filter((finding) => finding.departure !== null && finding.departure.review === null).length;
+  const notice = `${words.floorNotice} ${factsLine([...commentCounts(view), [words.reportCommandLabel, codeSpan(reportCommand(view, '<n>'))]])}`;
+  const questions = view.findings.filter(openQuestion).length;
+  const departures = view.findings.filter(openDeparture).length;
   const choices = view.findings.reduce((sum, finding) => sum + unsettledChoices(finding), 0);
   const waiting = factsLine([[words.waitingLabels.questions, String(questions)], [words.waitingLabels.departures, String(departures)], [words.waitingLabels.choices, String(choices)]]);
   const plausible = view.findings.filter((finding) => finding.decision?.decision === 'fix' && finding.finding.verdict === 'PLAUSIBLE').length;
-  const looks = [...heldConditionsOf(view).map(({ condition }) => words.conditionLabels[condition]), ...(plausible === 0 ? [] : [factsLine([[words.plausibleFixesLabel, String(plausible)]])])].map((item) => `- ${item}`);
+  const held = heldConditionsOf(view);
+  // With no condition listed, the fixed label says that none holds or that none was judged, as the full body says it, so a run whose conditions were never judged does not read as one where none hold.
+  const conditions = held.length > 0 ? [] : [factsLine([[words.conditionsLabel, view.brief.change.state === 'given' ? words.none : words.notJudged]])];
+  const looks = [...held.map(({ condition }) => words.conditionLabels[condition]), ...(plausible === 0 ? [] : [factsLine([[words.plausibleFixesLabel, String(plausible)]])])].map((item) => `- ${item}`);
   const kinds = [...new Set(view.brief.notExamined.map((gap) => gap.facts.kind))];
-  const gaps = kinds.length === 0 ? [factsLine([[words.gapsLabel, words.none]])] : kinds.map((kind) => `- ${words.gapLabels[kind]}`);
+  // The fixed line that no check ran, or that the fix pass runs them, first, as the full body gives it, so the floor claims no coverage the run did not have.
+  const checks = view.fixPass === 'continued' ? words.noCheckContinued : factsLine([[words.checksRunLabel, words.none]]);
+  const gaps = [checks, ...(kinds.length === 0 ? [factsLine([[words.gapsLabel, words.none]])] : kinds.map((kind) => words.gapLabels[kind]))].map((item) => `- ${item}`);
   const labels = words.lastLabels;
   const { configuration } = view.review;
   const last = factsLine([[labels.engine, `deep-review ${inlineText(view.input.engine)}`], [labels.runtime, configuration.runtime], [labels.run, codeSpan(shortRunId(view.state.id))], [labels.commits, `${shortCommit(view.scope.base)}..${shortCommit(view.scope.head)}`]]);
@@ -683,7 +719,9 @@ function floorBody(view: Page): string {
     [words.needsHeading],
     [waiting],
     questions + departures === 0 ? [] : answerLine(view, questions > 0, departures > 0),
-    looks,
+    conditions,
+    // The fixed notice before the reasons to look, as the full body gives it, so that right under the command that answers they do not read as items it answers.
+    ...(looks.length === 0 ? [] : [[words.looksNotice], looks]),
     [words.notExaminedHeading],
     gaps,
     [words.trustHeading],
@@ -696,33 +734,37 @@ function floorBody(view: Page): string {
 
 /**
  * The core of the change (R1 to R4, R10, R11 of the core of the change on
- * the pull request), never cut: the writer's title, what the change does,
- * why, the sources of the reason as links, its diagram, and whose reading
- * it is; or the triage's title, account and reason as its recorded words,
- * with the sources, and that it is the triage's; or that the run has no
- * account, and why.
+ * the pull request): the writer's title, what the change does, why, the
+ * sources of the reason as links, its diagram, and whose reading it is;
+ * or the triage's title, account and reason as its recorded words, with
+ * the sources, and that it is the triage's; or that the run has no
+ * account, and why. Its text leaves only with the floor, and its diagram
+ * with the step that leaves out the diagrams, where a notice of its own
+ * stands in its place (R2 row 5 of the review that always posts).
  */
 function coreSection(view: Page, say: Speaker): Section {
   const { words, core } = view;
-  if (core.kind === 'none') return { part: 'core', lines: [words.coreHeading, '', words.coreNone[core.state]] };
+  if (core.kind === 'none') return { lines: [words.coreHeading, '', words.coreNone[core.state]] };
   const sources = (given: readonly string[]): string[][] => (given.length === 0 ? [] : [[factsLine([[words.sourcesLabel, valueList(given.map((source) => sourceLink(view, source, say)))]])]]);
   const noReason = [[factsLine([[words.reasonLabel, words.noReason]])]];
   if (core.kind === 'writer') {
     const { title, what, why, whyFrom, diagram } = core.core;
     const reason = why === null ? noReason : [[`${words.whyLabel} ${sentenceText(say.prose(why))}`], ...sources(whyFrom)];
-    const drawn = diagram === null ? [] : view.leftOut.diagrams ? [words.coreDiagramCut] : [say.diagram(diagram)];
-    return { part: 'core', lines: blocks([words.coreHeading], [`**${say.prose(title)}**`], ...say.paragraphs(what).map((paragraph) => [paragraph]), ...reason, drawn, [words.coreWhoseWriter]) };
+    // Through the predicate the order reads, so the order and the core agree on whether the core shows a diagram.
+    const shown = coreDiagramShown(view) ? diagram : null;
+    const drawn = shown === null ? [] : view.leftOut.diagrams ? [words.coreDiagramCut] : [say.diagram(shown)];
+    return { lines: blocks([words.coreHeading], [`**${say.prose(title)}**`], ...say.paragraphs(what).map((paragraph) => [paragraph]), ...reason, drawn, [words.coreWhoseWriter]) };
   }
   const { title, change } = core;
   // The triage's title, account and reason are its recorded words, under its label once, as the notice after them says.
   const reason = change.why === null ? noReason : [[`${words.whyLabel} ${sentenceText(say.words(change.why))}`], ...sources(change.whyFrom)];
-  return { part: 'core', lines: blocks([words.coreHeading], [`${words.recorded.triage}: **${say.words(title)}**`], [paragraphText(say.words(change.what))], ...reason, [words.coreWhoseTriage]) };
+  return { lines: blocks([words.coreHeading], [`${words.recorded.triage}: **${say.words(title)}**`], [paragraphText(say.words(change.what))], ...reason, [words.coreWhoseTriage]) };
 }
 
 /** The summary (R1): the writer's summary, the table of the findings by severity and by decision, and the notice of what happens next with the command that applies the fixes. */
 function summarySection(view: Page, say: Speaker): Section {
   const written = view.summary === null ? [] : say.paragraphs(view.summary).map((paragraph) => [paragraph]);
-  return { part: 'summary', lines: blocks([view.words.summaryHeading], ...written, ...summaryFacts(view)) };
+  return { lines: blocks([view.words.summaryHeading], ...written, ...summaryFacts(view)) };
 }
 
 /** The table of the findings by severity and by decision, and the notice of what happens next with the command that applies the fixes, as the summary and the floor give them. */
@@ -814,10 +856,10 @@ function needsSection(view: Page, say: Speaker): Section {
   });
   const items = [...questions, ...departures];
   const looks = reasonsToLook(view, say);
-  const open = view.findings.some((finding) => (finding.question !== null && (finding.question.answer === null || finding.question.answer.option === null)) || (finding.departure !== null && finding.departure.review === null));
+  const open = view.findings.some((finding) => openQuestion(finding) || openDeparture(finding));
   const answer = items.length === 0 || !open ? [] : [answerLine(view, questions.length > 0, departures.length > 0)];
   const none = items.length === 0 ? [[factsLine([[words.questionsLabel, words.none], [words.departuresLabel, words.none], ...(looks.length > 0 ? [] : [[words.conditionsLabel, view.brief.change.state === 'given' ? words.none : words.notJudged] as const])])]] : [];
-  return { part: 'needs', lines: blocks([words.needsHeading], ...none, items, ...answer, ...(looks.length === 0 ? [] : [[words.looksNotice], looks])) };
+  return { lines: blocks([words.needsHeading], ...none, items, ...answer, ...(looks.length === 0 ? [] : [[words.looksNotice], looks])) };
 }
 
 /** The notice of who answers a question or a departure and how, with the command and the flags of the kinds the review lists. */
@@ -876,7 +918,7 @@ function notExaminedSection(view: Page, say: Speaker): Section {
   const refutedLine = count === 0 ? [] : [cut ? `${factsLine([[words.refutedLabel, String(count)], [words.notListedLabel, String(count)]])} ${words.refutedCut}` : factsLine([[words.refutedLabel, String(count)]])];
   const items = [checks, ...(gaps.length === 0 ? [factsLine([[words.gapsLabel, words.none]])] : gaps.map((gap) => gapFacts(view, gap, say))), ...refutedLine].map((line) => `- ${line}`);
   const written = view.notExamined === null ? [] : say.paragraphs(view.notExamined).map((paragraph) => [paragraph]);
-  if (count === 0 || cut) return { part: 'not examined', lines: blocks([words.notExaminedHeading], ...written, items) };
+  if (count === 0 || cut) return { lines: blocks([words.notExaminedHeading], ...written, items) };
   const entries = view.refuted.map(({ candidate, claim, why }) => {
     const location = repositoryLocation(candidate) === null ? null : { path: candidate.file!, line: candidate.line! };
     const place = location === null ? words.noPlace : locationLink(view, location);
@@ -884,7 +926,7 @@ function notExaminedSection(view: Page, say: Speaker): Section {
     const refutedBecause = why === null ? factsLine([[words.evidenceLabel, words.inReport]]) : `${words.refutedWhyLabel} ${sentenceText(say.prose(why))}`;
     return `- ${place}: ${said} ${refutedBecause}`;
   });
-  return { part: 'not examined', lines: blocks([words.notExaminedHeading], ...written, items, details(words.refutedSummary, entries)) };
+  return { lines: blocks([words.notExaminedHeading], ...written, items, details(words.refutedSummary, entries)) };
 }
 
 /** How the review worked (R3): what each role does, the counts of the run as a table, the fixed diagram, and what the verdicts, the severities and the values a severity is read from mean. */
@@ -893,7 +935,7 @@ function howSection(view: Page): Section {
   const labels = words.counts;
   const table = factsTable([labels.candidates, labels.groups, labels.refuted, labels.kept, labels.merged, labels.findings], [[counts.candidates, counts.groups, counts.refuted, counts.kept, counts.merged, counts.findings].map(String)]);
   const meanings = [words.verdictMeanings, ...(counts.unverified === 0 ? [] : [words.unverifiedMeaning]), words.severityMeanings, words.severityValues].join(' ');
-  return { part: 'how', lines: blocks([words.howHeading], [words.rolesNotice], table, [fenced(howDiagram(view))], [meanings]) };
+  return { lines: blocks([words.howHeading], [words.rolesNotice], table, [fenced(howDiagram(view))], [meanings]) };
 }
 
 /** The fixed diagram of how the review worked, its node texts from the table of words, with the pull request's number in the command that names the review. */
@@ -927,14 +969,15 @@ function findingLine(view: Page, finding: FindingView, say: Speaker): string {
   const action = actionText(view, finding, say);
   const facts = factsLine([[words.verdictLabel, verdictText(view, finding)], [words.decisionLabel, words.decisionValues[decisionValue(finding)]], ...(finding.question === null ? [] : [[words.recommendedLabel, String(finding.question.choice)] as const])]);
   // A finding whose text is left out gets the command that prints it after its line (R2, R6 of the review that always posts).
-  const command = takes(view.leftOut, finding.finding.id, 'text') ? [factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding))]])] : [];
+  const shown = shownAs(view, finding);
+  const command = shown === 'item' || shown === 'line' ? [factsLine([[words.printCommandLabel, codeSpan(reportCommand(view, finding.finding.number))]])] : [];
   return [`**${findingRef(view, finding)}.** ${sentenceText(titleText(view, finding, say))}`, facts, ...(action === null ? [] : [action]), ...command].join(' ');
 }
 
 /** The major findings by area (R4): each area's title, intro and diagram, less what a cut takes, and one line for each of its findings. */
 function areasSection(view: Page, say: Speaker): Section {
   const { words } = view;
-  if (majorActing(view).length === 0) return { part: 'areas', lines: [words.areasHeading, '', words.noMajor] };
+  if (majorActing(view).length === 0) return { lines: [words.areasHeading, '', words.noMajor] };
   const diagrams = !view.leftOut.diagrams;
   // Once, since each call cleans the writer's titles and intros, and counts their secrets, again.
   const given = areasOf(view, say);
@@ -943,8 +986,8 @@ function areasSection(view: Page, say: Speaker): Section {
     const intro = area.intro === null || area.intro === '' ? '' : ` ${sentenceText(area.intro)}`;
     return [[`**${sentenceText(area.title)}**${intro}`], ...(area.diagram === null || !diagrams ? [] : [[say.diagram(area.diagram)]]), lines];
   });
-  const cut = !diagrams && given.some((area) => area.diagram !== null);
-  return { part: 'areas', lines: blocks([words.areasHeading], ...areas, ...(cut ? [[words.areaDiagramsCut]] : [])) };
+  const cut = !diagrams && areaDiagramsShown(view);
+  return { lines: blocks([words.areasHeading], ...areas, ...(cut ? [[words.areaDiagramsCut]] : [])) };
 }
 
 /** The block of a finding in full: its anchor, its heading, its title and the parts its comment would give (R1). */
@@ -962,15 +1005,15 @@ function inFullBlock(view: Page, finding: FindingView, say: Speaker): string[] {
  * finding whose text was left out keeps its line in its area.
  */
 function inFullSection(view: Page, say: Speaker): Section {
-  const { words, leftOut } = view;
+  const { words } = view;
   const full = view.findings.filter(inFull);
-  const shown = full.filter((finding) => !takes(leftOut, finding.finding.id, 'text'));
-  const items = full.filter((finding) => isMinor(finding) && leftOut.findings.get(finding.finding.id) === 'text');
-  const unlisted = full.filter((finding) => takes(leftOut, finding.finding.id, 'line')).length;
+  const shown = full.filter((finding) => shownAs(view, finding) === 'block');
+  const items = full.filter((finding) => shownAs(view, finding) === 'item');
+  const unlisted = full.filter((finding) => shownAs(view, finding) === 'none').length;
   const blocksShown = shown.flatMap((finding, index) => [...(index === 0 ? [] : ['']), ...inFullBlock(view, finding, say)]);
   const list = items.length === 0 ? [] : [`${words.textsLeftLabel} ${words.textsLeftNotice}`, '', ...items.map((finding) => `- <a id="${findingAnchor(finding.finding.number)}"></a>${findingLine(view, finding, say)}`)];
   const count = unlisted === 0 ? [] : [`${factsLine([[words.notListedLabel, String(unlisted)]])} ${words.linesLeftNotice}`];
-  return { part: 'findings in full', lines: blocks(blocksShown, list, count) };
+  return { lines: blocks(blocksShown, list, count) };
 }
 
 
@@ -978,7 +1021,7 @@ function inFullSection(view: Page, say: Speaker): Section {
 function minorSection(view: Page, say: Speaker): Section {
   const { words } = view;
   const minor = minorActing(view);
-  if (minor.length === 0) return { part: 'minor', lines: [] };
+  if (minor.length === 0) return { lines: [] };
   const user = minor.filter((finding) => finding.kind === 'user').length;
   const code = minor.filter((finding) => finding.kind === 'code').length;
   // A finding whose kind the writer did not give is counted apart, as its row says, not with the code.
@@ -986,7 +1029,7 @@ function minorSection(view: Page, say: Speaker): Section {
   const needing = minor.filter((finding) => finding.question !== null || finding.departure !== null).map((finding) => finding.finding.number);
   const labels = words.minorLabels;
   const counts = factsLine([[labels.total, String(minor.length)], [labels.user, String(user)], [labels.code, String(code)], ...(none === 0 ? [] : [[labels.none, String(none)] as const]), [labels.onLine, String(minor.filter((finding) => finding.placement.place === 'line').length)], ...(needing.length === 0 ? [] : [[labels.needs, findingRefs(view, needing)] as const])]);
-  if (view.leftOut.minorTable) return { part: 'minor', lines: blocks([words.minorHeading], [counts], [words.minorCut]) };
+  if (view.leftOut.minorTable) return { lines: blocks([words.minorHeading], [counts], [words.minorCut]) };
   const columns = words.minorColumns;
   const rows = minor.map((finding) => {
     const action = actionText(view, finding, say);
@@ -996,7 +1039,7 @@ function minorSection(view: Page, say: Speaker): Section {
     const facts = decided.length + asked.length === 0 ? [] : [factsLine([...decided, ...asked])];
     return [findingRef(view, finding), titleText(view, finding, say), words.kindValues[finding.kind ?? 'none'], verdictText(view, finding), [...(action === null ? [] : [action]), ...facts].join(' ')];
   });
-  return { part: 'minor', lines: blocks([words.minorHeading], [counts], details(words.minorSummary, factsTable([columns.number, columns.finding, columns.kind, columns.verdict, columns.action], rows))) };
+  return { lines: blocks([words.minorHeading], [counts], details(words.minorSummary, factsTable([columns.number, columns.finding, columns.kind, columns.verdict, columns.action], rows))) };
 }
 
 /**
@@ -1005,18 +1048,20 @@ function minorSection(view: Page, say: Speaker): Section {
  * reason, or the ranking's summary and the decider's grounds as recorded
  * words; its facts with the reason of the closed list and the finding
  * that supersedes it; the steps that settled its choices; its line; and
- * the decision as recorded. Cut, those whose verifier named a choice and
- * the notice in place of the others.
+ * the decision as recorded. A finding that a `left` step of the order
+ * took is not listed, and is counted, with the notice, in place of the
+ * listed ones; one that waits on a person leaves last, in row 9 of R2 of
+ * the review that always posts.
  */
 function leftSection(view: Page, say: Speaker): Section {
   const { words } = view;
   const left = leftAsIs(view);
-  if (left.length === 0) return { part: 'left as is', lines: [] };
-  const shown = left.filter((finding) => !takes(view.leftOut, finding.finding.id, 'left'));
+  if (left.length === 0) return { lines: [] };
+  const shown = left.filter((finding) => shownAs(view, finding) === 'block');
   const others = left.length - shown.length;
   const cutNotice = others === 0 ? [] : [`${factsLine([[words.notListedLabel, String(others)]])} ${words.leftCut}`];
-  if (shown.length === 0) return { part: 'left as is', lines: blocks([words.leftHeading], cutNotice) };
-  return { part: 'left as is', lines: blocks([words.leftHeading], details(words.leftSummary, ...shown.map((finding) => leftBlock(view, finding, say))), cutNotice) };
+  if (shown.length === 0) return { lines: blocks([words.leftHeading], cutNotice) };
+  return { lines: blocks([words.leftHeading], details(words.leftSummary, ...shown.map((finding) => leftBlock(view, finding, say))), cutNotice) };
 }
 
 /** The block of a finding left as is in its section (R2 of the review in the writer's words; R4 of the settled choice). */
@@ -1093,22 +1138,35 @@ function postsWriterText(view: Page): boolean {
     || view.notExamined !== null
     || (view.areas !== null && view.areas.length > 0 && majorActing(view).length > 0)
     || (!view.leftOut.refuted && view.refuted.some((line) => line.claim !== null || line.why !== null))
-    || leftAsIs(view).some((finding) => finding.left !== null && !takes(view.leftOut, finding.finding.id, 'left'))
-    || view.findings.some((finding) => acts(finding) && postsFindingText(view, finding));
+    || leftAsIs(view).some((finding) => finding.left !== null && shownAs(view, finding) === 'block')
+    || view.findings.some((finding) => postsNeedsText(finding) || (acts(finding) && postsFindingText(view, finding)));
 }
 
 /**
- * Whether the review posts a text of the writer for a finding that acts:
- * its comment, unless only its facts fit; its block in full, which gives
- * the writer's reason for leaving it unexplained; or, once its text is
- * left out, its line, which holds the writer's title and sentence of
- * what deep-review would do, until its line leaves too.
+ * Whether the item of a finding under "What needs a person" posts a text
+ * of the writer: a question's sentence of what it asks, or a departure's
+ * text. `needsSection` lists every question and departure, wherever the
+ * finding is and whatever the order took from it, until the floor.
+ */
+const postsNeedsText = (finding: FindingView): boolean => (finding.decision?.decision === 'ask' && finding.question !== null && (finding.written?.action ?? null) !== null)
+  || (finding.departure !== null && (finding.written?.fix?.departure ?? null) !== null);
+
+/**
+ * Whether the review posts a text of the writer in the block, the line or
+ * the comment of a finding that acts: its comment, unless only its facts
+ * fit; its block in full, which gives the writer's reason for leaving it
+ * unexplained; or, once its text is left out, its line, which holds the
+ * writer's title and sentence of what deep-review would do, until its
+ * line leaves too. Its item under "What needs a person", which stays
+ * after its line leaves, is counted apart, by `postsNeedsText` in
+ * `postsWriterText`.
  */
 function postsFindingText(view: Page, finding: FindingView): boolean {
   const { id } = finding.finding;
   if (finding.placement.place === 'line') return !view.commentsLeftOut.some((comment) => comment.finding === id && comment.piece === 'text') && (finding.written !== null || (finding.explained.kind === 'unexplained' && finding.explained.reason !== null));
-  if (finding.written !== null) return !isMinor(finding) || !takes(view.leftOut, id, 'line');
-  return finding.explained.kind === 'unexplained' && finding.explained.reason !== null && !takes(view.leftOut, id, 'text');
+  const shown = shownAs(view, finding);
+  if (finding.written !== null) return shown !== 'none';
+  return finding.explained.kind === 'unexplained' && finding.explained.reason !== null && shown === 'block';
 }
 
 /**
@@ -1134,7 +1192,7 @@ function trustSection(view: Page): Section {
     const answered = [...standingAnswers(view.review).keys()].map((id) => view.brief.numbers.get(id)!);
     if (answered.length > 0) notes.push([factsLine([[words.answeredAfterLabel, findingRefs(view, [...new Set(answered)].sort((a, b) => a - b))]])]);
   }
-  return { part: 'trust', lines: blocks([words.trustHeading], ...trustTables(view), [candidates], ...notes) };
+  return { lines: blocks([words.trustHeading], ...trustTables(view), [candidates], ...notes) };
 }
 
 /** The tables of the verdicts, with how many of the major CONFIRMED ones were reproduced by running, and of how the findings were checked, as how far to trust the review and the floor give them; none for a run with no finding. */
@@ -1156,7 +1214,6 @@ function lastSection(view: Page, say: Speaker): Section {
   const { configuration } = view.review;
   const labels = view.words.lastLabels;
   return {
-    part: 'last line',
     lines: [
       factsLine([
         [labels.engine, `deep-review ${inlineText(view.input.engine)}`],
@@ -1178,10 +1235,10 @@ function lastSection(view: Page, say: Speaker): Section {
  * area, the findings in full, the minor findings, the findings left as is,
  * how far to trust the review and the last line.
  */
-function renderBody(view: FormView, leftOut: LeftOut, commentsLeftOut: readonly CommentLeftOut[], cache: Map<string, Cleaned>): { readonly sections: readonly Section[]; readonly text: string; readonly secrets: number } {
+function renderBody(view: FormView, leftOut: LeftOut, commentsLeftOut: readonly CommentLeftOut[], cache: Map<string, Cleaned>): { readonly text: string; readonly secrets: number } {
   const say = speakerOf(view.input.machine, view.words, view.names, cache);
   const page: Page = { ...view, leftOut, commentsLeftOut };
-  if (leftOut.floor) return { sections: [], text: floorBody(page), secrets: 0 };
+  if (leftOut.floor) return { text: floorBody(page), secrets: 0 };
   const sections = [
     headingSection(page),
     coreSection(page, say),
@@ -1196,7 +1253,7 @@ function renderBody(view: FormView, leftOut: LeftOut, commentsLeftOut: readonly 
     trustSection(page),
     lastSection(page, say),
   ].filter((section) => section.lines.length > 0);
-  return { sections, text: sections.map((section) => section.lines.join('\n')).join('\n\n'), secrets: say.secrets() };
+  return { text: sections.map((section) => section.lines.join('\n')).join('\n\n'), secrets: say.secrets() };
 }
 
 
@@ -1276,7 +1333,6 @@ export function pullRequestForm(input: PullRequestFormInput): PullRequestForm {
   // The floor holds no text whose length a run decides, so a floor over the limit is a defect of the form (TD7 of the review that always posts).
   if (body.text.length > maxPostedLength) throw new Error(`The floor of the review of run ${view.state.id} is ${String(body.text.length)} characters, over the ${String(maxPostedLength)} a review posts`);
   return {
-    kind: 'rendered',
     body: body.text,
     comments,
     places: input.places.map(({ finding, place, reason }) => ({ finding, place, reason })),

@@ -20,6 +20,13 @@ const withVerdict = (state: RunState, id: string, change: Record<string, unknown
   return { ...state, review: { ...state.review!, candidates: { ...state.review!.candidates, [id]: { ...candidate, verdict: { ...candidate.verdict!, ...change } } } } };
 };
 
+/** The writer's answer with the problem of finding 1, a fix against a written rule, padded with `pad` characters, and finding 2's text as it is. */
+const answerPadded = (pad: number): WriterAnswer => {
+  const said = writerAnswer();
+  const fix = said.findings[0] as WrittenFinding;
+  return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }, said.findings[1]!] };
+};
+
 /** The form whose body has left out exactly `steps`, among those sampled. */
 const at = (forms: readonly PullRequestForm[], steps: readonly string[]): string => {
   const found = forms.find((form) => JSON.stringify(stepsOf(form)) === JSON.stringify(steps));
@@ -36,23 +43,33 @@ describe('the pieces a body leaves out one finding at a time', () => {
   const order = ['minor-table', 'record:SWEEP-2', 'record:RIPPLE-1', 'refuted', 'diagrams', 'text:SWEEP-2', 'text:RIPPLE-1', 'line:SWEEP-2', 'left:SWEEP-1'];
   // The notice under the heading that the first step adds is longer than the table of one minor finding, so a body that loses only the table never fits where the whole one did not, and the form goes on to the next step.
   const expected = order.map((_, index) => order.slice(0, index)).concat([order]).filter((steps) => steps.length !== 1);
-  const boundaries = sampleBoundaries((pad) => renderedOf(withVerdict(state, 'SWEEP-1', { authorChoice: `Whether ${'c'.repeat(pad)}` }), answer(), noLine), 60_000, expected);
-  const forms = boundaries.flatMap(({ below, at: atLimit, above }) => [below, atLimit, above]);
+  let sampled: PullRequestForm[] | undefined;
+  /** The forms at each state, sampled once when a test first asks, so a state the order does not reach fails under that test. */
+  const samples = (): PullRequestForm[] => {
+    sampled ??= sampleBoundaries((pad) => renderedOf(withVerdict(state, 'SWEEP-1', { authorChoice: `Whether ${'c'.repeat(pad)}` }), answer(), noLine), 60_000, expected).flatMap(({ below, at: atLimit, above }) => [below, atLimit, above]);
+    return sampled;
+  };
 
   it('takes each step of the order in turn, a finding that waits on a person last, until the body fits, even a step that alone does not shorten it', () => {
+    const forms = samples();
     assert.deepEqual([...new Set(forms.map((form) => JSON.stringify(stepsOf(form))))].map((steps) => JSON.parse(steps) as string[]), expected);
   });
 
-  it('leaves the diagram of the core of the change with those of the areas, with a notice of its own in the core (R2 row 5)', () => {
+  it('leaves the diagrams of the core of the change and of a finding in full with those of the areas, each with a notice of its own in its place (R2 row 5)', () => {
+    const forms = samples();
     const before = at(forms, order.slice(0, 4));
     includes(before, 'E["empty file"] --> N["null"]');
+    includes(before, 'Caller->>parse: an empty file');
     const after = at(forms, order.slice(0, 5));
     excludes(after, 'E["empty file"] --> N["null"]');
+    excludes(after, 'Caller->>parse: an empty file');
+    includes(after, '### Finding 1');
+    includes(after, 'To fit the length GitHub takes, the diagram of this finding is left out; the writer\'s answer on the machine that holds the run keeps it.');
     includes(after, '**parse() accepts an empty file**\n\nparse() now returns null for an empty file.\n\nReason: none stated in the change\'s commit messages or documents.\n\nTo fit the length GitHub takes, the diagram of the change is left out; the writer\'s answer on the machine that holds the run keeps it.\n\nThis is deep-review\'s reading of the change');
   });
 
   it('gives a minor finding whose text left an item with its anchor, its line and the command that prints it, apart from the blocks of the others (R2 row 6)', () => {
-    const body = at(forms, order.slice(0, 6));
+    const body = at(samples(), order.slice(0, 6));
     excludes(body, '### Finding 2');
     includes(body, '### Finding 1');
     includes(body, '**Findings whose text is left out.** To fit the length GitHub takes, the text of each of these findings is left out; the report of the run prints each, in the words of the workers that recorded it.\n\n- <a id="finding-2"></a>**[Finding 2](#finding-2).** In the words of deep-review\'s ranking: s');
@@ -61,7 +78,7 @@ describe('the pieces a body leaves out one finding at a time', () => {
   });
 
   it('keeps a major finding whose text left as its line in its area, with no link and with the command that prints it (R2 row 6, R6)', () => {
-    const body = at(forms, order.slice(0, 7));
+    const body = at(samples(), order.slice(0, 7));
     excludes(body, '### Finding 1');
     excludes(body, '(#finding-1)');
     includes(body, '- **Finding 1.** parse() reads the null before any guard. Verdict: CONFIRMED. Decision: fix. Guard the null before parse reads it. Command that prints it: `deep-review report --run run-1 --finding 1`.');
@@ -69,7 +86,7 @@ describe('the pieces a body leaves out one finding at a time', () => {
   });
 
   it('counts a minor finding whose line left as not listed, and names it nowhere as a link (R2 row 7)', () => {
-    const body = at(forms, order.slice(0, 8));
+    const body = at(samples(), order.slice(0, 8));
     excludes(body, '#finding-2');
     excludes(body, '**Findings whose text is left out.**');
     includes(body, 'Not listed here: 1. To fit the length GitHub takes, these findings are not listed here; the report of the run prints each.');
@@ -78,6 +95,7 @@ describe('the pieces a body leaves out one finding at a time', () => {
   });
 
   it('keeps a finding left as is that waits on a person, with its choice in view, until every other finding has lost all it can (R4)', () => {
+    const forms = samples();
     includes(at(forms, order.slice(0, 8)), 'Choice its verifier left to the author: Whether c');
     const last = at(forms, order);
     excludes(last, 'Whether c');
@@ -91,18 +109,22 @@ describe('the record of a finding that waits on a person', () => {
   const named = withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice });
   // Grounds of the question longer than a decider gives, so that its record alone makes the body fit where the notice under the heading did not.
   const state: RunState = { ...named, review: { ...named.review!, decisions: named.review!.decisions!.map((decision) => (decision.id === 'SWEEP-1' ? { ...decision, grounds: `${decision.grounds} ${'g'.repeat(3000)}` } : decision)) } };
-  const answerOf = (pad: number): WriterAnswer => {
-    const said = writerAnswer();
-    const fix = said.findings[0] as WrittenFinding;
-    return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }, said.findings[1]!] };
+  // Finding 1's diagram leaves at the diagrams step, before the record of any finding that waits, as the author decided.
+  const expected = [[], ['minor-table', 'refuted', 'diagrams', 'record:SWEEP-1'], ['minor-table', 'refuted', 'diagrams', 'record:SWEEP-1', 'record:RIPPLE-1']];
+  let sampled: PullRequestForm[] | undefined;
+  /** The forms at each state, sampled once when a test first asks, so a state the order does not reach fails under that test. */
+  const samples = (): PullRequestForm[] => {
+    sampled ??= sampleBoundaries((pad) => renderedOf(state, answerPadded(pad), noLine), 60_000, expected).flatMap(({ below, at: atLimit, above }) => [below, atLimit, above]);
+    return sampled;
   };
-  const expected = [[], ['minor-table', 'refuted', 'record:SWEEP-1'], ['minor-table', 'refuted', 'record:SWEEP-1', 'record:RIPPLE-1']];
-  const boundaries = sampleBoundaries((pad) => renderedOf(state, answerOf(pad), noLine), 60_000, expected);
-  const forms = boundaries.flatMap(({ below, at: atLimit, above }) => [below, atLimit, above]);
 
   it('leaves last of what a finding loses, the last-ranked first, and keeps its question and its departure in view (R4 row 8)', () => {
+    const forms = samples();
     const question = at(forms, expected[1]!);
     includes(question, '**The question.**');
+    includes(question, '**Against a written rule.**');
+    excludes(question, 'Caller->>parse: an empty file');
+    includes(question, 'To fit the length GitHub takes, the diagram of this finding is left out');
     includes(question, '| Option | In the words of deep-review\'s decider |');
     includes(question, 'The decision as deep-review recorded it is left out here to fit the length GitHub takes. Command that prints it: `deep-review report --run run-1 --finding 2`.');
     const fix = at(forms, expected[2]!);
@@ -112,7 +134,7 @@ describe('the record of a finding that waits on a person', () => {
   });
 
   it('shows in view, once the record leaves, each choice no one settled, as the verifier\'s, after the command that prints the record (R4)', () => {
-    const fix = at(forms, expected[2]!);
+    const fix = at(samples(), expected[2]!);
     includes(fix, `The decision as deep-review recorded it is left out here to fit the length GitHub takes. Command that prints it: \`deep-review report --run run-1 --finding 1\`.\n\n- Choice its verifier left to the author: ${choice} Settled as: not settled by deep-review`);
     excludes(fix, 'Grounds: Parse reads the null');
   });
@@ -122,21 +144,12 @@ describe('the record of a finding that waits on a person', () => {
 describe('the floor', () => {
   const choice = 'Whether parse should throw or return null on an empty file.';
   const named = withVerdict(run().fold(), 'RIPPLE-1', { authorChoice: choice });
-  /** Findings 1, a fix against a written rule, and 2, a question, both waiting, finding 1's text padded with `pad` characters. */
-  const answerOf = (pad: number): WriterAnswer => {
-    const said = writerAnswer();
-    const fix = said.findings[0] as WrittenFinding;
-    return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }, said.findings[1]!] };
-  };
-  const floorOf = (files: PullRequestFile[] = noLine): PullRequestForm => {
-    const form = renderedOf(named, answerOf(70_000), files);
-    assert.equal(form.kind, 'rendered');
-    return form as PullRequestForm;
-  };
+  /** Findings 1, a fix against a written rule, and 2, a question, both waiting, finding 1's text padded so that only the floor fits. */
+  const floorOf = (files: PullRequestFile[] = noLine): PullRequestForm => renderedOf(named, answerPadded(70_000), files);
 
   it('is posted when nothing less fits, as the last step of the order, under the limit and with the marker of the publication last', () => {
     const form = floorOf();
-    assert.deepEqual(stepsOf(form), ['minor-table', 'refuted', 'record:SWEEP-1', 'record:RIPPLE-1', 'floor']);
+    assert.deepEqual(stepsOf(form), ['minor-table', 'refuted', 'diagrams', 'record:SWEEP-1', 'record:RIPPLE-1', 'floor']);
     assert.ok(form.body.length < 60_000, String(form.body.length));
     assert.equal(form.body.split('\n').at(-1), `<!-- ${publicationMarker('run-1', 1)} -->`);
   });
@@ -168,7 +181,7 @@ describe('the floor', () => {
   it('gives the notice that a model wrote the sentences only when a comment posted with it holds a text of the writer', () => {
     // Finding 1 on its line, with the writer's text in its comment; finding 2's question, in the body, padded so that only the floor fits.
     const state: RunState = { ...named, review: { ...named.review!, decisions: named.review!.decisions!.map((decision) => (decision.id === 'SWEEP-1' && decision.decision === 'ask' ? { ...decision, ask: { ...decision.ask, question: `Should parse accept an empty input? ${'w'.repeat(70_000)}` } } : decision)) } };
-    const form = renderedOf(state, writerAnswer(), filesWith()) as PullRequestForm;
+    const form = renderedOf(state, writerAnswer(), filesWith());
     assert.equal(stepsOf(form).at(-1), 'floor');
     includes(form.body, 'A model wrote the sentences');
     includes(form.comments[0]!.body, 'parse() reads the null before any guard.');
@@ -177,8 +190,7 @@ describe('the floor', () => {
   it('fits for a run far larger than any on record: 2,000 findings with long texts in the body, the most a publication records, each comment beside it', () => {
     const state = largeRun(1997, 2000);
     const files: PullRequestFile[] = [{ path: 'src/a.ts', status: 'modified', previousPath: null, patch: `@@ -100,0 +100,100 @@\n${Array.from({ length: 100 }, (_, index) => `+added ${String(100 + index)}`).join('\n')}` }];
-    const form = renderedOf(state, writerAnswer(), files) as PullRequestForm;
-    assert.equal(form.kind, 'rendered');
+    const form = renderedOf(state, writerAnswer(), files);
     assert.equal(form.places.length, 2000);
     assert.equal(stepsOf(form).at(-1), 'floor');
     assert.ok(form.body.length < 60_000, String(form.body.length));
@@ -207,17 +219,12 @@ describe('what is left out, in the language the run recorded (R6, R10 of the rev
   const korean = (history: ReturnType<typeof run>): RunState => withSettings(history, { 'review.language': 'ko' }, { 'review.language': 'repository' }).fold();
 
   it('takes the notice under the heading, the record\'s place, the floor and the facts form of a comment from the Korean table', () => {
-    const answer = (pad: number): WriterAnswer => {
-      const said = writerAnswer();
-      const fix = said.findings[0] as WrittenFinding;
-      return { ...said, findings: [{ ...fix, problem: `${fix.problem} ${'q'.repeat(pad)}` }, said.findings[1]!] };
-    };
     const ko = pullRequestWordTables.ko;
-    const floor = renderedOf(korean(run()), answer(70_000), noLine);
+    const floor = renderedOf(korean(run()), answerPadded(70_000), noLine);
     assert.equal(stepsOf(floor).at(-1), 'floor');
     includes(floor.body, ko.floorNotice);
     includes(floor.body, `${ko.waitingLabels.questions}: 1.`);
-    const comment = renderedOf(korean(run()), answer(70_000), filesWith());
+    const comment = renderedOf(korean(run()), answerPadded(70_000), filesWith());
     includes(comment.comments[0]!.body, ko.commentFactsNotice);
     includes(comment.body, `${ko.leftOutLabels.commentTexts}: 1.`);
     includes(comment.body, ko.leftOutNotice);
