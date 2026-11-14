@@ -21,6 +21,7 @@ import { budgetReached, driftList, isResumable, requirePinned, spendBound, type 
 import { drifted, findDrift } from './drift.ts';
 import { ReviewRefusedError } from './errors.ts';
 import { acquireRunLock, acquireStartLock } from './lock.ts';
+import { inlineText } from './markdown.ts';
 import type { PolicyFlags } from './policy.ts';
 import { latestFirst, readableRuns, runIdOf } from './runs.ts';
 import { budgetBlocker } from './steps.ts';
@@ -131,11 +132,19 @@ export function chooseAnswerRun(checkpoint: Checkpoint, runId: string | undefine
   return found;
 }
 
-/** An answer as `deep-review answer` prints what it recorded: `option 2` with the text the decider recorded for the option, as `saying` gives an owed one, so the person who answered from the review on the pull request sees the option the ledger holds; `accepted` or `rejected` as it is. */
+/**
+ * Text a model wrote, as one line a terminal shows as it is: line breaks
+ * collapsed as `inlineText` does, then every other C0 or C1 control
+ * character, ESC and DEL among them, a space, so no escape sequence or
+ * carriage return in it can rewrite or forge a line of the command's output.
+ */
+const terminalLine = (text: string): string => inlineText(text).replaceAll(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
+
+/** An answer as `deep-review answer` prints what it recorded: `option 2` with the text the decider recorded for the option, made one terminal-safe line (`terminalLine`), as `saying` gives an owed one, so the person who answered from the review on the pull request sees the option the ledger holds; `accepted` or `rejected` as it is. */
 export function recordedAnswerWords(run: RunState, answer: RecordedAnswer): string {
   if (answer.answer.kind !== 'option') return answerWords(answer.answer);
   const option = run.review?.decisions?.find((candidate) => candidate.id === answer.id)?.ask?.options[answer.answer.option]?.option;
-  return option === undefined ? answerWords(answer.answer) : `${answerWords(answer.answer)}, "${option}"`;
+  return option === undefined ? answerWords(answer.answer) : `${answerWords(answer.answer)}, "${terminalLine(option)}"`;
 }
 
 /** What an owed answer says, as a refusal of the pass names it for the person to apply by hand: the option's text, or the departure's rule and its source. */
