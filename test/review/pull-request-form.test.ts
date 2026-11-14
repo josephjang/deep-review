@@ -928,6 +928,12 @@ describe('the fit of the review (R2, R6 of the review that always posts)', () =>
     includes(at(forms, 'text:RIPPLE-1'), 'Left out whole: the table of the minor findings, the refuted candidates, the diagrams. Findings left as is that are not listed: 1. Findings whose text is left out: 1. Command');
   });
 
+  it('names the diagrams in a dry run by what is true of every run, here one whose core has none (R9)', () => {
+    const form = samples(true).forms.find((sampled) => stepsOf(sampled).at(-1) === 'diagrams')!;
+    const lines = dryRunLines(state, [], form, []);
+    assert.ok(lines.includes('Left out of the body to fit: the table of the minor findings, then the recorded decision of finding 1, then the refuted candidates, then finding 3, left as is, then the diagrams.'), lines.join('\n'));
+  });
+
   it('makes and names no step that takes nothing from the body', () => {
     assert.deepEqual(samples(false).states, withoutDiagrams);
   });
