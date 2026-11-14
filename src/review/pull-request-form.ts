@@ -437,8 +437,9 @@ function questionBlocks(view: FormView, finding: FindingView, say: Speaker): str
 /**
  * The decision as deep-review recorded it (R4 of the review in the
  * writer's words): the writer's text of the fix first, paragraph by
- * paragraph, its first under its label, then the recorded words an answer and the fix pass apply, each under
- * its label: the approach and each option rejected, or each option of a
+ * paragraph, its first under its label, then the recorded words, each under
+ * its label, beside the notice that an answer and the fix pass apply them
+ * for a fix or a question, none for a finding left as is:the approach and each option rejected, or each option of a
  * question with its cost and its rule, the departure's rule, source and
  * fact where the writer restated it, the grounds of the decision, and
  * each choice a verifier left to the author beside the choice that
@@ -469,8 +470,10 @@ function recordBlocks(view: FormView, finding: FindingView, say: Speaker): strin
       : `${words.settledChoiceLabel}: ${say.sentence(shown.settled.choice)} ${factsLine([[words.settledByLabel, words.settleSteps[shown.settled.by]]])} ${words.sourceLabel}: ${say.sentence(shown.settled.source)}`;
     recorded.push(`- ${[...shown.verifiers.map((choice) => `${words.verifierChoiceLabel}: ${say.sentence(choice)}`), settled].join(' ')}`);
   }
+  // A finding left as is takes no answer and the fix pass applies nothing to it, so its record carries no notice that they apply these words.
+  const notice = decision.decision === 'leave' ? [] : [words.recordNotice];
   const parts = [...writerText, [`${words.recorded.decider}:`, ...recorded]];
-  return finding.written === null && finding.left === null ? blocks([`**${words.recordSummary}**`], [words.recordNotice], ...parts) : details(words.recordSummary, [words.recordNotice], ...parts);
+  return finding.written === null && finding.left === null ? blocks([`**${words.recordSummary}**`], notice, ...parts) : details(words.recordSummary, notice, ...parts);
 }
 
 /** What deep-review would do about a finding of R5's order, each a block: its action, the steps that settled its choices and its departure for a fix, or its question, then the decision as recorded. */
