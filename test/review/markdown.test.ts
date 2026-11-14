@@ -230,6 +230,17 @@ describe('sentenceText', () => {
     assert.equal(sentenceText('as follows:'), 'as follows.');
     assert.equal(sentenceText('one\n## two'), 'one ## two.');
   });
+
+  it('keeps a CJK, full-width or ellipsis stop as the stop, closing marks after it included', () => {
+    assert.equal(sentenceText('この変更は正しいです。'), 'この変更は正しいです。');
+    assert.equal(sentenceText('这个修改是正确的！'), '这个修改是正确的！');
+    assert.equal(sentenceText('정말입니까？'), '정말입니까？');
+    assert.equal(sentenceText('ＯＫ．'), 'ＯＫ．');
+    assert.equal(sentenceText('and so on…'), 'and so on…');
+    assert.equal(sentenceText('「確認しました。」'), '「確認しました。」');
+    assert.equal(sentenceText('（終わり。）'), '（終わり。）');
+    assert.equal(sentenceText('この変更は正しいです'), 'この変更は正しいです.');
+  });
 });
 
 // R1, TD3 of the review in the writer's words.
@@ -243,6 +254,10 @@ describe('the data forms', () => {
     assert.equal(factsLine([['Severity', 'major'], ['Verdict', 'CONFIRMED']]), 'Severity: major. Verdict: CONFIRMED.');
     assert.equal(factsLine([['Answered on', '2026-11-13'], ['Command', 'run it.']]), 'Answered on: 2026-11-13. Command: run it.');
     assert.equal(factsLine([]), '');
+  });
+
+  it('keeps a CJK stop a value has', () => {
+    assert.equal(factsLine([['理由', '確認できません。'], ['Verdict', 'CONFIRMED']]), '理由: 確認できません。 Verdict: CONFIRMED.');
   });
 
   it('gives facts as a table whose header row is labels, each cell kept to its cell', () => {
