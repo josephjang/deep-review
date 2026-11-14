@@ -244,7 +244,7 @@ function requireUnmoved(gh: Gh, run: RunState, unrecorded: string): number {
 const wholeWords: Readonly<Record<Exclude<FitStep, { readonly finding: string }>['piece'], string>> = {
   'minor-table': 'the table of the minor findings',
   refuted: 'the refuted candidates',
-  diagrams: 'the diagrams of the areas and of the core of the change',
+  diagrams: 'the diagrams',
   floor: 'everything but the floor',
 };
 
