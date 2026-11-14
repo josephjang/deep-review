@@ -38,7 +38,7 @@ import { fenceFor } from './prompts.ts';
 import { publicCode, publicProse, publicWords, withoutSecrets, type MachineContext } from './public-text.ts';
 import { firstFit, fitOrder, leftOutOf, nothingLeftOut, takes, unsettledChoices, type FitStep, type LeftOut } from './pull-request-fit.ts';
 import type { DecisionValue, LeftOutKind, LineNote, PullRequestWords, RecordedSpeaker, WholePiece, WriterPart } from './pull-request-words.ts';
-import { acts, formViewOf, inFull, isMinor, leftAsIs, majorActing, minorActing, openDeparture, openQuestion, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
+import { acts, areaDiagramsShown, formViewOf, inFull, isMinor, leftAsIs, majorActing, minorActing, openDeparture, openQuestion, type FindingLocation, type FindingPlacement, type FindingView, type FormView, type PullRequestFormInput } from './pull-request-view.ts';
 import { shortRunId } from './runs.ts';
 import { choicesShown } from './state.ts';
 import { changeConditions, type ChangeConditionName, type FindingPlace, type PlaceReason } from './vocabulary.ts';
@@ -976,7 +976,7 @@ function areasSection(view: Page, say: Speaker): Section {
     const intro = area.intro === null || area.intro === '' ? '' : ` ${sentenceText(area.intro)}`;
     return [[`**${sentenceText(area.title)}**${intro}`], ...(area.diagram === null || !diagrams ? [] : [[say.diagram(area.diagram)]]), lines];
   });
-  const cut = !diagrams && given.some((area) => area.diagram !== null);
+  const cut = !diagrams && areaDiagramsShown(view);
   return { lines: blocks([words.areasHeading], ...areas, ...(cut ? [[words.areaDiagramsCut]] : [])) };
 }
 
